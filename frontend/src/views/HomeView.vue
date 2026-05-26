@@ -24,19 +24,25 @@
           <n-icon size="24"><cube-outline /></n-icon>
         </div>
         <div class="type-label">订阅创建</div>
-        <div class="type-desc">发送订阅ID和名称信息</div>
+        <div class="type-desc">发送订阅信息</div>
       </div>
     </div>
 
-    <!-- Recipient -->
+    <!-- Subject & Recipient -->
     <div class="form-field">
-      <label class="field-label">收件人邮箱 *</label>
-      <n-input
-        v-model:value="recipient"
-        placeholder="user@example.com"
-        size="large"
-        clearable
-      />
+      <label class="field-label">邮件标题 *</label>
+      <n-input v-model:value="subject" placeholder="邮件标题" size="large" clearable />
+    </div>
+
+    <div class="form-row">
+      <div class="form-col">
+        <label class="field-label">收件人 *</label>
+        <n-input v-model:value="recipient" placeholder="user@example.com" size="large" clearable />
+      </div>
+      <div class="form-col">
+        <label class="field-label">抄送 CC</label>
+        <n-input v-model:value="cc" placeholder="cc@example.com（多人用逗号分隔）" size="large" clearable />
+      </div>
     </div>
 
     <!-- Dynamic form -->
@@ -55,14 +61,18 @@
       />
     </div>
 
-    <!-- Preview -->
+    <!-- Editable body preview -->
     <div class="preview-card">
-      <div class="preview-header">邮件预览</div>
-      <div class="preview-subject">主题：{{ previewSubject }}</div>
-      <div class="preview-body">{{ previewBody }}</div>
+      <div class="preview-header">邮件正文（可编辑）</div>
+      <n-input
+        v-model:value="editableBody"
+        type="textarea"
+        :autosize="{ minRows: 6, maxRows: 20 }"
+        size="large"
+      />
     </div>
 
-    <!-- Send button -->
+    <!-- Send -->
     <n-button
       type="primary"
       size="large"
@@ -87,45 +97,55 @@ import { sendEmail } from "@/api";
 
 const message = useMessage();
 const emailType = ref("account");
+const subject = ref("");
 const recipient = ref("");
+const cc = ref("");
 const remark = ref("");
 const sending = ref(false);
+const editableBody = ref("");
 
 const formData = ref({});
 
-// Reset form data when type changes
 watch(emailType, () => {
   formData.value = {};
+  remark.value = "";
 });
 
 const canSend = computed(() => {
-  if (!recipient.value) return false;
+  if (!subject.value || !recipient.value) return false;
   if (emailType.value === "account") {
     return formData.value.account && formData.value.password && formData.value.account_type;
   }
-  return formData.value.subscription_id && formData.value.subscription_name && formData.value.subscription_type;
+  return formData.value.subscriptions && formData.value.subscriptions.length > 0;
 });
 
-const previewSubject = computed(() => {
-  return emailType.value === "account" ? "您的账号已创建完成" : "您的订阅已创建完成";
-});
-
-const previewBody = computed(() => {
-  const lines = ["您好，", ""];
+// Auto-generate body preview from form data
+watch([formData, remark, emailType], () => {
+  const lines = [];
+  lines.push("您好，");
+  lines.push("");
   if (emailType.value === "account") {
-    lines.push("您的账号已创建完成，信息如下：");
-    if (formData.value.account) lines.push(`  账号：${formData.value.account}`);
-    if (formData.value.password) lines.push(`  密码：${"*".repeat(formData.value.password.length) || "****"}`);
-    if (formData.value.account_type) lines.push(`  类型：${formData.value.account_type}`);
+    const d = formData.value;
+    if (d.account || d.password || d.account_type) {
+      lines.push("您的账号已创建完成，信息如下：");
+      if (d.account) lines.push(`  账号：${d.account}`);
+      if (d.password) lines.push(`  密码：${d.password}`);
+      if (d.account_type) lines.push(`  类型：${d.account_type}`);
+    }
   } else {
-    lines.push("您的订阅已创建完成，信息如下：");
-    if (formData.value.subscription_id) lines.push(`  订阅 ID：${formData.value.subscription_id}`);
-    if (formData.value.subscription_name) lines.push(`  订阅名称：${formData.value.subscription_name}`);
-    if (formData.value.subscription_type) lines.push(`  订阅类型：${formData.value.subscription_type}`);
+    const subs = formData.value.subscriptions;
+    if (subs && subs.length > 0) {
+      lines.push("您的订阅已创建完成，信息如下：");
+      subs.forEach((s, i) => {
+        if (s.subscription_id || s.subscription_name) {
+          lines.push(`  ${i + 1}. ${s.subscription_id || "-"} - ${s.subscription_name || "-"}`);
+        }
+      });
+    }
   }
   if (remark.value) lines.push(`\n${remark.value}`);
-  return lines.join("\n");
-});
+  editableBody.value = lines.join("\n");
+}, { deep: true, immediate: true });
 
 async function handleSend() {
   sending.value = true;
@@ -133,6 +153,8 @@ async function handleSend() {
     const payload = {
       email_type: emailType.value,
       recipient: recipient.value,
+      cc: cc.value,
+      subject: subject.value,
       remark: remark.value,
     };
     if (emailType.value === "account") {
@@ -142,17 +164,15 @@ async function handleSend() {
         account_type: formData.value.account_type,
       });
     } else {
-      Object.assign(payload, {
-        subscription_id: formData.value.subscription_id,
-        subscription_name: formData.value.subscription_name,
-        subscription_type: formData.value.subscription_type,
-      });
+      payload.subscriptions = (formData.value.subscriptions || []).map((s) => ({
+        subscription_id: s.subscription_id,
+        subscription_name: s.subscription_name,
+      }));
     }
+    // Use the user-edited body
+    payload.body = editableBody.value;
     await sendEmail(payload);
     message.success("邮件发送成功");
-    recipient.value = "";
-    remark.value = "";
-    formData.value = {};
   } catch (err) {
     message.error(err.response?.data?.detail || "发送失败");
   } finally {
@@ -244,28 +264,11 @@ async function handleSend() {
   margin-bottom: 6px;
 }
 
-.form-section {
-  margin-bottom: 24px;
-}
-
-.section-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #86868b;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
-}
-
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-bottom: 16px;
-}
-
-.form-col .field-label {
-  margin-bottom: 6px;
+  margin-bottom: 20px;
 }
 
 .preview-card {
@@ -283,19 +286,5 @@ async function handleSend() {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 10px;
-}
-
-.preview-subject {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  color: #1d1d1f;
-}
-
-.preview-body {
-  font-size: 14px;
-  color: #424245;
-  white-space: pre-wrap;
-  line-height: 1.7;
 }
 </style>

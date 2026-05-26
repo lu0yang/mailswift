@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .database import init_db, get_db
-from .models import Settings, EmailHistory
+from .models import Settings, EmailHistory, DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email
 
@@ -48,25 +48,41 @@ app.add_middleware(
 
 
 class SettingsUpdate(BaseModel):
-    email_address: str
-    password: str
+    smtp_host: str = "mail.21vianet.com"
+    smtp_port: int = 587
+    email_address: str = ""
+    password: str = ""
+    account_template: str = DEFAULT_ACCOUNT_TEMPLATE
+    subscription_template: str = DEFAULT_SUBSCRIPTION_TEMPLATE
 
 
 class SettingsResponse(BaseModel):
+    smtp_host: str
+    smtp_port: int
     email_address: str
     password_masked: str
+    account_template: str
+    subscription_template: str
     updated_at: str | None
+
+
+class SubscriptionItem(BaseModel):
+    subscription_id: str
+    subscription_name: str
 
 
 class SendEmailRequest(BaseModel):
     email_type: str = Field(..., pattern="^(account|subscription)$")
     recipient: str
-    account: str | None = None          # for account type
-    password: str | None = None          # for account type (the target account password, not SMTP)
-    account_type: str | None = None      # for account type
-    subscription_id: str | None = None   # for subscription type
-    subscription_name: str | None = None # for subscription type
-    subscription_type: str | None = None # for subscription type
+    cc: str = ""
+    subject: str = ""
+    body: str = ""
+    # account type fields
+    account: str | None = None
+    password: str | None = None
+    account_type: str | None = None
+    # subscription type fields
+    subscriptions: list[SubscriptionItem] = []
     remark: str = ""
 
 
@@ -74,6 +90,7 @@ class HistoryResponse(BaseModel):
     id: int
     email_type: str
     recipient: str
+    cc: str
     subject: str
     status: str
     error_message: str
@@ -94,10 +111,22 @@ class HistoryListResponse(BaseModel):
 def get_settings(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     if not s:
-        return SettingsResponse(email_address="", password_masked="", updated_at=None)
+        return SettingsResponse(
+            smtp_host="mail.21vianet.com",
+            smtp_port=587,
+            email_address="",
+            password_masked="",
+            account_template=DEFAULT_ACCOUNT_TEMPLATE,
+            subscription_template=DEFAULT_SUBSCRIPTION_TEMPLATE,
+            updated_at=None,
+        )
     return SettingsResponse(
-        email_address=s.email_address,
+        smtp_host=s.smtp_host or "mail.21vianet.com",
+        smtp_port=s.smtp_port or 587,
+        email_address=s.email_address or "",
         password_masked="********" if s.encrypted_password else "",
+        account_template=s.account_template or DEFAULT_ACCOUNT_TEMPLATE,
+        subscription_template=s.subscription_template or DEFAULT_SUBSCRIPTION_TEMPLATE,
         updated_at=s.updated_at.isoformat() if s.updated_at else None,
     )
 
@@ -108,81 +137,75 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     if not s:
         s = Settings()
         db.add(s)
+    s.smtp_host = payload.smtp_host
+    s.smtp_port = payload.smtp_port
     s.email_address = payload.email_address
-    s.encrypted_password = encrypt_password(payload.password)
+    s.account_template = payload.account_template
+    s.subscription_template = payload.subscription_template
+    if payload.password:
+        s.encrypted_password = encrypt_password(payload.password)
     s.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
 
 
+# ── Template rendering ──────────────────────────────────
+
+
+def render_account_body(template: str, data: SendEmailRequest) -> str:
+    return template.replace("{account}", data.account or "") \
+                   .replace("{password}", data.password or "") \
+                   .replace("{account_type}", data.account_type or "") \
+                   .replace("{remark}", data.remark or "")
+
+
+def render_subscription_body(template: str, data: SendEmailRequest) -> str:
+    lines = []
+    for i, sub in enumerate(data.subscriptions, 1):
+        lines.append(f"  {i}. {sub.subscription_id} - {sub.subscription_name}")
+    subscription_list = "\n".join(lines) if lines else "（无）"
+    return template.replace("{subscription_list}", subscription_list) \
+                   .replace("{remark}", data.remark or "")
+
+
 # ── Send Email API ──────────────────────────────────────
-
-
-def build_account_email(data: SendEmailRequest) -> tuple[str, str]:
-    subject = "您的账号已创建完成"
-    lines = [
-        "您好，",
-        "",
-        "您的账号已创建完成，信息如下：",
-        f"  账号：{data.account}",
-        f"  密码：{data.password}",
-        f"  类型：{data.account_type}",
-    ]
-    if data.remark:
-        lines.append(f"\n{data.remark}")
-    return subject, "\n".join(lines)
-
-
-def build_subscription_email(data: SendEmailRequest) -> tuple[str, str]:
-    subject = "您的订阅已创建完成"
-    lines = [
-        "您好，",
-        "",
-        "您的订阅已创建完成，信息如下：",
-        f"  订阅 ID：{data.subscription_id}",
-        f"  订阅名称：{data.subscription_name}",
-        f"  订阅类型：{data.subscription_type}",
-    ]
-    if data.remark:
-        lines.append(f"\n{data.remark}")
-    return subject, "\n".join(lines)
 
 
 @app.post("/api/send")
 def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
-    # Load SMTP credentials
     s = db.query(Settings).first()
     if not s or not s.email_address or not s.encrypted_password:
         raise HTTPException(status_code=400, detail="请先在设置中配置邮箱凭据")
 
     smtp_password = decrypt_password(s.encrypted_password)
 
-    # Build email content
     if data.email_type == "account":
         if not data.account or not data.password or not data.account_type:
-            raise HTTPException(status_code=400, detail="账号类型邮件需要填写账号、密码和账户类型")
-        subject, body = build_account_email(data)
+            raise HTTPException(status_code=400, detail="请填写账号、密码和账户类型")
+        template = s.account_template or DEFAULT_ACCOUNT_TEMPLATE
+        body = render_account_body(template, data)
     else:
-        if not data.subscription_id or not data.subscription_name or not data.subscription_type:
-            raise HTTPException(status_code=400, detail="订阅类型邮件需要填写订阅ID、订阅名称和订阅类型")
-        subject, body = build_subscription_email(data)
+        if not data.subscriptions:
+            raise HTTPException(status_code=400, detail="请至少添加一条订阅")
+        template = s.subscription_template or DEFAULT_SUBSCRIPTION_TEMPLATE
+        body = render_subscription_body(template, data)
 
-    # Send
     success, error_msg = send_email(
         smtp_host=s.smtp_host,
         smtp_port=s.smtp_port,
         email_address=s.email_address,
         password=smtp_password,
         recipient=data.recipient,
-        subject=subject,
+        subject=data.subject,
         body=body,
+        cc=data.cc,
     )
 
-    # Record history
     record = EmailHistory(
         email_type=data.email_type,
         recipient=data.recipient,
-        subject=subject,
+        cc=data.cc,
+        subject=data.subject,
         body=body,
         status="success" if success else "failed",
         error_message=error_msg,
@@ -196,7 +219,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     return {"ok": True, "history_id": record.id}
 
 
-# ── History APIs ────────────────────────────────────────
+# ── History APIs ───────────────────────────────────────
 
 
 @app.get("/api/history", response_model=HistoryListResponse)
@@ -227,9 +250,10 @@ def get_history(
                 id=item.id,
                 email_type=item.email_type,
                 recipient=item.recipient,
-                subject=item.subject,
+                cc=item.cc or "",
+                subject=item.subject or "",
                 status=item.status,
-                error_message=item.error_message,
+                error_message=item.error_message or "",
                 sent_at=item.sent_at.isoformat() if item.sent_at else "",
             )
             for item in items
@@ -252,14 +276,13 @@ def health():
     return {"status": "ok"}
 
 
-# ── Frontend static serving (production mode) ─────────────
+# ── Frontend static serving (production mode) ───────────
 
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str, request: Request):
-        """Serve Vue SPA — return index.html for all non-API routes."""
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404)
         file_path = FRONTEND_DIST / full_path

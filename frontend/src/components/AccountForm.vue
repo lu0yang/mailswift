@@ -19,17 +19,27 @@
     </div>
     <div class="form-field">
       <label class="field-label">账户类型 *</label>
-      <n-input v-model:value="local.account_type" placeholder="如：管理员、普通用户、访客" size="large" />
+      <n-select
+        v-model:value="local.account_type"
+        :options="accountTypeOptions"
+        placeholder="请选择账户类型"
+        size="large"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
 import { reactive, watch } from "vue";
-import { NInput } from "naive-ui";
+import { NInput, NSelect } from "naive-ui";
 
 const props = defineProps({ modelValue: Object });
 const emit = defineEmits(["update:modelValue"]);
+
+const accountTypeOptions = [
+  { label: "Devops", value: "Devops" },
+  { label: "Nodevops", value: "Nodevops" },
+];
 
 const local = reactive({
   account: props.modelValue?.account || "",
@@ -39,3 +49,37 @@ const local = reactive({
 
 watch(local, (v) => emit("update:modelValue", { ...v }), { deep: true });
 </script>
+
+<style scoped>
+.form-section {
+  margin-bottom: 24px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #86868b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.form-field {
+  margin-bottom: 0;
+}
+
+.field-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+  margin-bottom: 6px;
+}
+</style>

@@ -11,19 +11,26 @@ def send_email(
     recipient: str,
     subject: str,
     body: str,
+    cc: str = "",
 ) -> tuple[bool, str]:
     """Send an email via SMTP. Returns (success, error_message)."""
     msg = MIMEMultipart()
     msg["From"] = email_address
     msg["To"] = recipient
     msg["Subject"] = subject
+    if cc:
+        msg["Cc"] = cc
     msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    all_recipients = [recipient]
+    if cc:
+        all_recipients += [addr.strip() for addr in cc.split(",") if addr.strip()]
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
             server.starttls()
             server.login(email_address, password)
-            server.sendmail(email_address, recipient, msg.as_string())
+            server.sendmail(email_address, all_recipients, msg.as_string())
         return True, ""
     except smtplib.SMTPAuthenticationError:
         return False, "SMTP 认证失败，请检查邮箱和密码是否正确"
