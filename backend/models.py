@@ -44,7 +44,6 @@ class EmailTemplate(Base):
     name = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)
     content = Column(Text, default="")
-    is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

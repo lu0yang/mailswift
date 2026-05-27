@@ -1,6 +1,12 @@
 <template>
   <div class="home">
-    <div class="page-title">发送邮件</div>
+    <div class="title-row">
+      <div class="page-title">发送邮件</div>
+      <n-button text type="error" size="small" @click="handleClear">
+        <template #icon><n-icon><trash-outline /></n-icon></template>
+        一键清理
+      </n-button>
+    </div>
 
     <!-- Email type switcher -->
     <div class="type-switcher">
@@ -74,12 +80,19 @@
       />
     </div>
 
-    <!-- Live preview -->
-    <div class="preview-card">
-      <div class="preview-header">邮件预览</div>
-      <div class="preview-body" v-html="htmlPreview"></div>
-      <div v-if="!body" class="preview-empty">输入正文后此处显示实时预览</div>
+    <!-- Preview button -->
+    <div class="preview-btn-row">
+      <n-button size="large" @click="previewVisible = true">
+        <template #icon><n-icon><eye-outline /></n-icon></template>
+        预览邮件
+      </n-button>
     </div>
+
+    <!-- Preview modal -->
+    <n-modal v-model:show="previewVisible" preset="card" title="邮件预览" style="max-width:720px">
+      <div v-if="body" class="preview-body" v-html="htmlPreview"></div>
+      <div v-else class="preview-empty">暂无正文内容</div>
+    </n-modal>
 
     <!-- Signature selector -->
     <div class="form-field">
@@ -91,11 +104,6 @@
         size="large"
         clearable
       />
-    </div>
-
-    <!-- BCC self -->
-    <div class="bcc-row">
-      <n-checkbox v-model:checked="bccSelf">抄送自己一份</n-checkbox>
     </div>
 
     <!-- Send -->
@@ -115,9 +123,10 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onActivated } from "vue";
-import { NInput, NSelect, NButton, NIcon, NCheckbox, useMessage } from "naive-ui";
-import { PersonOutline, CubeOutline, SendOutline } from "@vicons/ionicons5";
+import { NInput, NSelect, NButton, NIcon, NModal, useMessage } from "naive-ui";
+import { PersonOutline, CubeOutline, SendOutline, EyeOutline, TrashOutline } from "@vicons/ionicons5";
 import { marked } from "marked";
+import TurndownService from "turndown";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
 import { sendEmail, getTemplates, getSignatures } from "@/api";
@@ -129,13 +138,16 @@ const selectedSignatureId = ref(null);
 const subject = ref("");
 const recipient = ref("");
 const cc = ref("");
-const bccSelf = ref(false);
 const body = ref("");
+const previewVisible = ref(false);
 const sending = ref(false);
 
 const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
+const bodySource = ref("");
+
+const turndown = new TurndownService({ linkStyle: "referenced", headingStyle: "atx" });
 
 const templateOptions = computed(() =>
   templates.value
@@ -181,6 +193,7 @@ onActivated(async () => {
     if (selectedTemplateId.value) {
       const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
       if (t) {
+        bodySource.value = t.content;
         body.value = renderTemplateContent(t.content);
       }
     }
@@ -190,21 +203,23 @@ onActivated(async () => {
 // ── Template rendering ──────────────
 
 function renderTemplateContent(templateContent) {
-  let result = templateContent;
+  // Substitute variables in the HTML template
+  let html = templateContent;
   if (emailType.value === "account") {
     const accounts = formData.value.accounts || [];
     const lines = accounts
       .filter((a) => a.account || a.password || a.account_type)
       .map((a, i) => `${i + 1}. ${a.account} / ${a.password} / ${a.account_type}`);
-    result = result.replace("{account_list}", lines.join("\n") || "（无）");
+    html = html.replace("{account_list}", lines.join("<br>") || "（无）");
   } else {
     const subs = formData.value.subscriptions || [];
     const lines = subs
       .filter((s) => s.subscription_id || s.subscription_name)
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`);
-    result = result.replace("{subscription_list}", lines.join("\n") || "（无）");
+    html = html.replace("{subscription_list}", lines.join("<br>") || "（无）");
   }
-  return result;
+  // Convert HTML template to Markdown for the body textarea
+  return turndown.turndown(html);
 }
 
 // ── Event handlers ──────────────────
@@ -214,28 +229,52 @@ function switchType(type) {
   saveDraft();
   emailType.value = type;
   selectedTemplateId.value = null;
+  bodySource.value = "";
   body.value = "";
   formData.value = {};
   loadDraft();
 }
 
+function handleClear() {
+  selectedTemplateId.value = null;
+  selectedSignatureId.value = null;
+  subject.value = "";
+  recipient.value = "";
+  cc.value = "";
+  body.value = "";
+  bodySource.value = "";
+  formData.value = {};
+  clearDraft();
+}
+
 function onTemplateChange(id) {
   if (!id) {
+    bodySource.value = "";
     body.value = "";
     return;
   }
   const t = templates.value.find((tp) => tp.id === id);
   if (t) {
+    bodySource.value = t.content;
     body.value = renderTemplateContent(t.content);
   }
 }
 
-// Re-render body when formData changes (if a template is selected)
+// Re-render body when formData changes
 watch([formData, emailType], () => {
-  if (!selectedTemplateId.value) return;
-  const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
-  if (t) {
-    body.value = renderTemplateContent(t.content);
+  // If a template is selected, always re-render from its content
+  if (selectedTemplateId.value) {
+    const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
+    if (t) {
+      bodySource.value = t.content;
+      body.value = renderTemplateContent(t.content);
+    }
+    return;
+  }
+  // No template selected — auto-detect manually typed variables in the body
+  if (body.value && (body.value.includes("{account_list}") || body.value.includes("{subscription_list}"))) {
+    bodySource.value = body.value;
+    body.value = renderTemplateContent(bodySource.value);
   }
 }, { deep: true });
 
@@ -255,7 +294,6 @@ function saveDraft() {
     subject: subject.value,
     recipient: recipient.value,
     cc: cc.value,
-    bccSelf: bccSelf.value,
     body: body.value,
     formData: formData.value,
   };
@@ -274,7 +312,6 @@ function loadDraft() {
     subject.value = draft.subject || "";
     recipient.value = draft.recipient || "";
     cc.value = draft.cc || "";
-    bccSelf.value = draft.bccSelf || false;
     body.value = draft.body || "";
     formData.value = draft.formData || {};
   } catch { /* ignore */ }
@@ -282,7 +319,7 @@ function loadDraft() {
 
 // Auto-save draft every 3 seconds
 let draftTimer = null;
-watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipient, cc, bccSelf, body, formData], () => {
+watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipient, cc, body, formData], () => {
   clearTimeout(draftTimer);
   draftTimer = setTimeout(saveDraft, 3000);
 }, { deep: true });
@@ -298,7 +335,6 @@ async function handleSend() {
       cc: cc.value,
       subject: subject.value,
       body: body.value,
-      bcc_self: bccSelf.value,
       template_id: selectedTemplateId.value || null,
       signature_id: selectedSignatureId.value || null,
     };
@@ -344,11 +380,18 @@ function clearDraft() {
   to { opacity: 1; transform: translateY(0); }
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+
 .page-title {
   font-size: 28px;
   font-weight: 700;
   letter-spacing: -0.4px;
-  margin-bottom: 28px;
+  margin-bottom: 0;
 }
 
 .type-switcher {
@@ -473,7 +516,7 @@ function clearDraft() {
   padding: 20px 0;
 }
 
-.bcc-row {
-  margin-bottom: 20px;
+.preview-btn-row {
+  margin-bottom: 24px;
 }
 </style>

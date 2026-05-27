@@ -42,8 +42,10 @@ def _migrate_schema(db: Session):
     settings_cols = {c["name"] for c in insp.get_columns("settings")}
     if "imap_host" not in settings_cols:
         db.execute(sa.text("ALTER TABLE settings ADD COLUMN imap_host VARCHAR(255) DEFAULT 'partner.outlook.cn'"))
+        db.execute(sa.text("UPDATE settings SET imap_host = 'partner.outlook.cn' WHERE imap_host IS NULL"))
     if "imap_port" not in settings_cols:
         db.execute(sa.text("ALTER TABLE settings ADD COLUMN imap_port INTEGER DEFAULT 993"))
+        db.execute(sa.text("UPDATE settings SET imap_port = 993 WHERE imap_port IS NULL"))
 
     # email_history table
     if "email_history" in insp.get_table_names():
@@ -71,8 +73,8 @@ def _migrate_templates(db: Session):
         if s.subscription_template:
             sub_content = s.subscription_template
 
-    db.add(EmailTemplate(name="默认账号模板", type="account", content=account_content, is_default=True))
-    db.add(EmailTemplate(name="默认订阅模板", type="subscription", content=sub_content, is_default=True))
+    db.add(EmailTemplate(name="默认账号模板", type="account", content=account_content))
+    db.add(EmailTemplate(name="默认订阅模板", type="subscription", content=sub_content))
     db.commit()
     logger.info("Migrated legacy templates to email_templates table")
 
@@ -136,7 +138,6 @@ class SendEmailRequest(BaseModel):
     email_type: str = Field(..., pattern="^(account|subscription)$")
     recipient: str
     cc: str = ""
-    bcc_self: bool = False
     subject: str = ""
     body: str = ""
     template_id: int | None = None
@@ -168,13 +169,11 @@ class TemplateCreate(BaseModel):
     name: str
     type: str = Field(..., pattern="^(account|subscription)$")
     content: str = ""
-    is_default: bool = False
 
 
 class TemplateUpdate(BaseModel):
     name: str
     content: str
-    is_default: bool = False
 
 
 class TemplateResponse(BaseModel):
@@ -182,7 +181,6 @@ class TemplateResponse(BaseModel):
     name: str
     type: str
     content: str
-    is_default: bool
     created_at: str
 
 
@@ -251,18 +249,37 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+class TestSmtpRequest(BaseModel):
+    smtp_host: str = ""
+    smtp_port: int = 587
+    email_address: str = ""
+    password: str = ""
+
+
 @app.post("/api/settings/test-smtp")
-def test_smtp(db: Session = Depends(get_db)):
+def test_smtp(data: TestSmtpRequest = TestSmtpRequest(), db: Session = Depends(get_db)):
     s = db.query(Settings).first()
-    if not s or not s.email_address or not s.encrypted_password:
-        raise HTTPException(status_code=400, detail="请先配置 SMTP 凭据")
-    smtp_password = decrypt_password(s.encrypted_password)
+
+    # Use request body params if provided, otherwise fall back to saved settings
+    if data.email_address and data.password:
+        host = data.smtp_host or "mail.21vianet.com"
+        port = data.smtp_port or 587
+        addr = data.email_address
+        pwd = data.password
+    elif s and s.email_address and s.encrypted_password:
+        host = s.smtp_host
+        port = s.smtp_port
+        addr = s.email_address
+        pwd = decrypt_password(s.encrypted_password)
+    else:
+        raise HTTPException(status_code=400, detail="请先填写邮箱地址和密码")
+
     success, error_msg, _ = send_email(
-        smtp_host=s.smtp_host,
-        smtp_port=s.smtp_port,
-        email_address=s.email_address,
-        password=smtp_password,
-        recipient=s.email_address,
+        smtp_host=host,
+        smtp_port=port,
+        email_address=addr,
+        password=pwd,
+        recipient=addr,
         subject="MailSwift 连接测试",
         body_html="<p>这是一封测试邮件，用于验证 SMTP 配置是否正确。</p>",
         body_plain="这是一封测试邮件，用于验证 SMTP 配置是否正确。",
@@ -287,7 +304,6 @@ def list_templates(
     return [
         TemplateResponse(
             id=t.id, name=t.name, type=t.type, content=t.content,
-            is_default=t.is_default,
             created_at=t.created_at.isoformat() if t.created_at else "",
         )
         for t in items
@@ -296,15 +312,12 @@ def list_templates(
 
 @app.post("/api/templates", response_model=TemplateResponse)
 def create_template(data: TemplateCreate, db: Session = Depends(get_db)):
-    if data.is_default:
-        _clear_defaults(db, data.type)
-    t = EmailTemplate(name=data.name, type=data.type, content=data.content, is_default=data.is_default)
+    t = EmailTemplate(name=data.name, type=data.type, content=data.content)
     db.add(t)
     db.commit()
     db.refresh(t)
     return TemplateResponse(
         id=t.id, name=t.name, type=t.type, content=t.content,
-        is_default=t.is_default,
         created_at=t.created_at.isoformat() if t.created_at else "",
     )
 
@@ -314,16 +327,12 @@ def update_template(template_id: int, data: TemplateUpdate, db: Session = Depend
     t = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="模板不存在")
-    if data.is_default:
-        _clear_defaults(db, t.type)
     t.name = data.name
     t.content = data.content
-    t.is_default = data.is_default
     db.commit()
     db.refresh(t)
     return TemplateResponse(
         id=t.id, name=t.name, type=t.type, content=t.content,
-        is_default=t.is_default,
         created_at=t.created_at.isoformat() if t.created_at else "",
     )
 
@@ -336,13 +345,6 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
     db.delete(t)
     db.commit()
     return {"ok": True}
-
-
-def _clear_defaults(db: Session, template_type: str):
-    db.query(EmailTemplate).filter(
-        EmailTemplate.type == template_type,
-        EmailTemplate.is_default == True,  # noqa: E712
-    ).update({"is_default": False})
 
 
 # ── Signature CRUD ──────────────────────────────────────
@@ -442,24 +444,21 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
 
     body_md = data.body
 
-    # Append signature if selected
-    if data.signature_id:
-        sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
-        if sig and sig.content:
-            body_md = body_md + "\n\n---\n" + sig.content
-
     # Validate
     if data.email_type == "account" and not data.accounts:
         raise HTTPException(status_code=400, detail="请至少添加一条账号")
     if data.email_type == "subscription" and not data.subscriptions:
         raise HTTPException(status_code=400, detail="请至少添加一条订阅")
 
-    # Convert markdown → HTML, keep markdown as plain text
+    # Convert markdown → HTML
     body_html = markdown.markdown(body_md, output_format="html")
     body_plain = body_md
 
-    # BCC self
-    bcc = s.email_address if data.bcc_self else ""
+    # Append signature HTML if selected
+    if data.signature_id:
+        sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
+        if sig and sig.content:
+            body_html += "\n<hr>\n" + sig.content
 
     smtp_password = decrypt_password(s.encrypted_password)
     success, error_msg, msg_bytes = send_email(
@@ -472,14 +471,15 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         body_html=body_html,
         body_plain=body_plain,
         cc=data.cc,
-        bcc=bcc,
     )
 
     archive_status = ""
-    if success and msg_bytes and s.imap_host:
+    imap_host = s.imap_host or "partner.outlook.cn"
+    imap_port = s.imap_port or 993
+    if success and msg_bytes:
         archived, archive_err = save_to_sent_items(
-            imap_host=s.imap_host,
-            imap_port=s.imap_port,
+            imap_host=imap_host,
+            imap_port=imap_port,
             email_address=s.email_address,
             password=smtp_password,
             msg_bytes=msg_bytes,

@@ -13,7 +13,6 @@ def send_email(
     body_html: str,
     body_plain: str,
     cc: str = "",
-    bcc: str = "",
 ) -> tuple[bool, str, bytes]:
     """Send an email via SMTP with HTML + plain text multipart.
 
@@ -33,8 +32,6 @@ def send_email(
     all_recipients = [recipient]
     if cc:
         all_recipients += [addr.strip() for addr in cc.split(",") if addr.strip()]
-    if bcc:
-        all_recipients += [addr.strip() for addr in bcc.split(",") if addr.strip()]
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:

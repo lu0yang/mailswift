@@ -30,12 +30,15 @@
             <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入密码" size="large" />
           </div>
           <div class="btn-row">
-            <n-button type="primary" size="large" :loading="saving" @click="handleSave">
-              保存凭据
-            </n-button>
             <n-button size="large" :loading="testing" @click="handleTest">
               测试连接
             </n-button>
+            <n-button type="primary" size="large" :loading="saving" :disabled="!smtpTested" @click="handleSave">
+              保存凭据
+            </n-button>
+          </div>
+          <div v-if="!smtpTested && (emailAddress || password)" class="test-hint">
+            请先通过连接测试，成功后方可保存凭据
           </div>
           <div v-if="statusText" class="status-bar">
             <span class="status-dot" :class="statusType"></span>
@@ -90,7 +93,6 @@
               <div class="list-card-left">
                 <span class="type-badge" :class="t.type">{{ t.type === 'account' ? '账号' : '订阅' }}</span>
                 <span class="list-card-name">{{ t.name }}</span>
-                <span v-if="t.is_default" class="default-badge">默认</span>
               </div>
               <div class="list-card-right">
                 <n-button text size="tiny" @click="openTemplateModal(t)">编辑</n-button>
@@ -131,7 +133,7 @@
     </n-tabs>
 
     <!-- Template Edit Modal -->
-    <n-modal v-model:show="templateModalVisible" preset="card" title="模板" style="max-width:640px">
+    <n-modal v-model:show="templateModalVisible" preset="card" title="模板" style="max-width:720px">
       <div class="modal-field">
         <label class="field-label">模板名称</label>
         <n-input v-model:value="templateForm.name" placeholder="例如：正式账号通知" size="large" />
@@ -146,23 +148,14 @@
       </div>
       <div class="modal-field">
         <label class="field-label">
-          正文内容（Markdown）
+          正文内容
           <span class="field-hint">
             — 变量：
             <code v-if="templateForm.type === 'account'">{account_list}</code>
             <code v-else>{subscription_list}</code>
           </span>
         </label>
-        <n-input
-          v-model:value="templateForm.content"
-          type="textarea"
-          :autosize="{ minRows: 6, maxRows: 16 }"
-          placeholder="支持 Markdown 语法…"
-          size="large"
-        />
-      </div>
-      <div class="modal-field">
-        <n-checkbox v-model:checked="templateForm.is_default">设为默认模板</n-checkbox>
+        <RichTextEditor v-model="templateForm.content" />
       </div>
       <template #footer>
         <div class="modal-footer">
@@ -173,20 +166,14 @@
     </n-modal>
 
     <!-- Signature Edit Modal -->
-    <n-modal v-model:show="sigModalVisible" preset="card" title="签名" style="max-width:640px">
+    <n-modal v-model:show="sigModalVisible" preset="card" title="签名" style="max-width:720px">
       <div class="modal-field">
         <label class="field-label">签名名称</label>
         <n-input v-model:value="sigForm.name" placeholder="例如：工作签名" size="large" />
       </div>
       <div class="modal-field">
-        <label class="field-label">签名内容（Markdown，支持链接、图片、样式）</label>
-        <n-input
-          v-model:value="sigForm.content"
-          type="textarea"
-          :autosize="{ minRows: 4, maxRows: 12 }"
-          placeholder="例如：**张三** | [公司官网](https://example.com)"
-          size="large"
-        />
+        <label class="field-label">签名内容</label>
+        <RichTextEditor v-model="sigForm.content" />
       </div>
       <div class="modal-field">
         <n-checkbox v-model:checked="sigForm.is_default">设为默认签名</n-checkbox>
@@ -202,12 +189,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import {
   NInput, NInputNumber, NSelect, NButton, NIcon, NTabs, NTabPane,
   NModal, NCheckbox, useMessage,
 } from "naive-ui";
 import { ArrowBackOutline, AddOutline } from "@vicons/ionicons5";
+import RichTextEditor from "@/components/RichTextEditor.vue";
 import {
   getSettings, updateSettings, testSmtp,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
@@ -226,6 +214,7 @@ const imapHost = ref("partner.outlook.cn");
 const imapPort = ref(993);
 const saving = ref(false);
 const testing = ref(false);
+const smtpTested = ref(false);
 const statusText = ref("");
 const statusType = ref("");
 
@@ -240,15 +229,21 @@ onMounted(async () => {
     if (data.password_masked) {
       statusText.value = `已配置  |  上次更新：${data.updated_at?.slice(0, 10) || "-"}`;
       statusType.value = "success";
+      smtpTested.value = true;
     }
   } catch { /* not yet configured */ }
   await loadTemplates();
   await loadSignatures();
 });
 
+// Reset test state when SMTP fields change
+watch([smtpHost, smtpPort, emailAddress, password], () => {
+  smtpTested.value = false;
+});
+
 async function handleSave() {
-  if (!emailAddress.value) {
-    message.warning("请输入邮箱地址");
+  if (!smtpTested.value) {
+    message.warning("请先通过连接测试再保存");
     return;
   }
   saving.value = true;
@@ -273,15 +268,22 @@ async function handleSave() {
 }
 
 async function handleTest() {
-  if (!emailAddress.value) {
+  if (!emailAddress.value || !password.value) {
     message.warning("请先填写邮箱地址和密码");
     return;
   }
   testing.value = true;
   try {
-    await testSmtp();
+    await testSmtp({
+      smtp_host: smtpHost.value,
+      smtp_port: smtpPort.value,
+      email_address: emailAddress.value,
+      password: password.value,
+    });
+    smtpTested.value = true;
     message.success("连接测试成功");
   } catch (err) {
+    smtpTested.value = false;
     message.error(err.response?.data?.detail || "连接测试失败");
   } finally {
     testing.value = false;
@@ -306,7 +308,7 @@ const filteredTemplates = computed(() => {
 const templateModalVisible = ref(false);
 const templateSaving = ref(false);
 const editingTemplateId = ref(null);
-const templateForm = ref({ name: "", type: "account", content: "", is_default: false });
+const templateForm = ref({ name: "", type: "account", content: "" });
 
 async function loadTemplates() {
   try {
@@ -322,11 +324,10 @@ function openTemplateModal(template) {
       name: template.name,
       type: template.type,
       content: template.content,
-      is_default: template.is_default,
     };
   } else {
     editingTemplateId.value = null;
-    templateForm.value = { name: "", type: "account", content: "", is_default: false };
+    templateForm.value = { name: "", type: "account", content: "" };
   }
   templateModalVisible.value = true;
 }
@@ -510,6 +511,13 @@ async function handleDeleteSignature(id) {
 }
 
 .status-dot.success { background: #34c759; }
+
+.test-hint {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #f59e0b;
+  text-align: center;
+}
 
 /* ── Template / Signature lists ─── */
 
