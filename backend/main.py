@@ -33,6 +33,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _migrate_schema(db: Session):
+    """Add columns that may be missing from older DB versions."""
+    import sqlalchemy as sa
+    insp = sa.inspect(db.get_bind())
+
+    # settings table
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    if "imap_host" not in settings_cols:
+        db.execute(sa.text("ALTER TABLE settings ADD COLUMN imap_host VARCHAR(255) DEFAULT 'partner.outlook.cn'"))
+    if "imap_port" not in settings_cols:
+        db.execute(sa.text("ALTER TABLE settings ADD COLUMN imap_port INTEGER DEFAULT 993"))
+
+    # email_history table
+    if "email_history" in insp.get_table_names():
+        history_cols = {c["name"] for c in insp.get_columns("email_history")}
+        if "archive_status" not in history_cols:
+            db.execute(sa.text("ALTER TABLE email_history ADD COLUMN archive_status VARCHAR(20) DEFAULT ''"))
+        if "template_id" not in history_cols:
+            db.execute(sa.text("ALTER TABLE email_history ADD COLUMN template_id INTEGER"))
+
+    db.commit()
+
+
 def _migrate_templates(db: Session):
     """Migrate legacy Settings template fields into email_templates table."""
     existing = db.query(EmailTemplate).count()
@@ -59,6 +82,7 @@ async def lifespan(app: FastAPI):
     init_db()
     db = next(get_db())
     try:
+        _migrate_schema(db)
         _migrate_templates(db)
     finally:
         db.close()
