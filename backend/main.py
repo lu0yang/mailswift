@@ -1,9 +1,11 @@
 import logging
+import re
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+import markdown
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,11 +14,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .database import init_db, get_db
-from .models import Settings, EmailHistory, DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE
+from .models import (
+    Settings, EmailHistory, EmailTemplate, Signature,
+    DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
+)
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email
+from .imap_saver import save_to_sent_items
 
-# Resolve frontend dist path
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
 else:
@@ -28,9 +33,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _migrate_templates(db: Session):
+    """Migrate legacy Settings template fields into email_templates table."""
+    existing = db.query(EmailTemplate).count()
+    if existing > 0:
+        return
+
+    s = db.query(Settings).first()
+    account_content = DEFAULT_ACCOUNT_TEMPLATE
+    sub_content = DEFAULT_SUBSCRIPTION_TEMPLATE
+    if s:
+        if s.account_template:
+            account_content = s.account_template
+        if s.subscription_template:
+            sub_content = s.subscription_template
+
+    db.add(EmailTemplate(name="默认账号模板", type="account", content=account_content, is_default=True))
+    db.add(EmailTemplate(name="默认订阅模板", type="subscription", content=sub_content, is_default=True))
+    db.commit()
+    logger.info("Migrated legacy templates to email_templates table")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    db = next(get_db())
+    try:
+        _migrate_templates(db)
+    finally:
+        db.close()
     yield
 
 
@@ -52,8 +83,8 @@ class SettingsUpdate(BaseModel):
     smtp_port: int = 587
     email_address: str = ""
     password: str = ""
-    account_template: str = DEFAULT_ACCOUNT_TEMPLATE
-    subscription_template: str = DEFAULT_SUBSCRIPTION_TEMPLATE
+    imap_host: str = "partner.outlook.cn"
+    imap_port: int = 993
 
 
 class SettingsResponse(BaseModel):
@@ -61,9 +92,15 @@ class SettingsResponse(BaseModel):
     smtp_port: int
     email_address: str
     password_masked: str
-    account_template: str
-    subscription_template: str
+    imap_host: str
+    imap_port: int
     updated_at: str | None
+
+
+class AccountItem(BaseModel):
+    account: str
+    password: str
+    account_type: str
 
 
 class SubscriptionItem(BaseModel):
@@ -75,15 +112,13 @@ class SendEmailRequest(BaseModel):
     email_type: str = Field(..., pattern="^(account|subscription)$")
     recipient: str
     cc: str = ""
+    bcc_self: bool = False
     subject: str = ""
     body: str = ""
-    # account type fields
-    account: str | None = None
-    password: str | None = None
-    account_type: str | None = None
-    # subscription type fields
+    template_id: int | None = None
+    signature_id: int | None = None
+    accounts: list[AccountItem] = []
     subscriptions: list[SubscriptionItem] = []
-    remark: str = ""
 
 
 class HistoryResponse(BaseModel):
@@ -94,6 +129,7 @@ class HistoryResponse(BaseModel):
     subject: str
     status: str
     error_message: str
+    archive_status: str
     sent_at: str
 
 
@@ -102,6 +138,48 @@ class HistoryListResponse(BaseModel):
     page: int
     page_size: int
     items: list[HistoryResponse]
+
+
+class TemplateCreate(BaseModel):
+    name: str
+    type: str = Field(..., pattern="^(account|subscription)$")
+    content: str = ""
+    is_default: bool = False
+
+
+class TemplateUpdate(BaseModel):
+    name: str
+    content: str
+    is_default: bool = False
+
+
+class TemplateResponse(BaseModel):
+    id: int
+    name: str
+    type: str
+    content: str
+    is_default: bool
+    created_at: str
+
+
+class SignatureCreate(BaseModel):
+    name: str
+    content: str = ""
+    is_default: bool = False
+
+
+class SignatureUpdate(BaseModel):
+    name: str
+    content: str
+    is_default: bool = False
+
+
+class SignatureResponse(BaseModel):
+    id: int
+    name: str
+    content: str
+    is_default: bool
+    created_at: str
 
 
 # ── Settings APIs ───────────────────────────────────────
@@ -116,8 +194,8 @@ def get_settings(db: Session = Depends(get_db)):
             smtp_port=587,
             email_address="",
             password_masked="",
-            account_template=DEFAULT_ACCOUNT_TEMPLATE,
-            subscription_template=DEFAULT_SUBSCRIPTION_TEMPLATE,
+            imap_host="partner.outlook.cn",
+            imap_port=993,
             updated_at=None,
         )
     return SettingsResponse(
@@ -125,8 +203,8 @@ def get_settings(db: Session = Depends(get_db)):
         smtp_port=s.smtp_port or 587,
         email_address=s.email_address or "",
         password_masked="********" if s.encrypted_password else "",
-        account_template=s.account_template or DEFAULT_ACCOUNT_TEMPLATE,
-        subscription_template=s.subscription_template or DEFAULT_SUBSCRIPTION_TEMPLATE,
+        imap_host=s.imap_host or "partner.outlook.cn",
+        imap_port=s.imap_port or 993,
         updated_at=s.updated_at.isoformat() if s.updated_at else None,
     )
 
@@ -140,8 +218,8 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     s.smtp_host = payload.smtp_host
     s.smtp_port = payload.smtp_port
     s.email_address = payload.email_address
-    s.account_template = payload.account_template
-    s.subscription_template = payload.subscription_template
+    s.imap_host = payload.imap_host
+    s.imap_port = payload.imap_port
     if payload.password:
         s.encrypted_password = encrypt_password(payload.password)
     s.updated_at = datetime.now(timezone.utc)
@@ -149,23 +227,184 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.post("/api/settings/test-smtp")
+def test_smtp(db: Session = Depends(get_db)):
+    s = db.query(Settings).first()
+    if not s or not s.email_address or not s.encrypted_password:
+        raise HTTPException(status_code=400, detail="请先配置 SMTP 凭据")
+    smtp_password = decrypt_password(s.encrypted_password)
+    success, error_msg, _ = send_email(
+        smtp_host=s.smtp_host,
+        smtp_port=s.smtp_port,
+        email_address=s.email_address,
+        password=smtp_password,
+        recipient=s.email_address,
+        subject="MailSwift 连接测试",
+        body_html="<p>这是一封测试邮件，用于验证 SMTP 配置是否正确。</p>",
+        body_plain="这是一封测试邮件，用于验证 SMTP 配置是否正确。",
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=error_msg)
+    return {"ok": True}
+
+
+# ── Template CRUD ───────────────────────────────────────
+
+
+@app.get("/api/templates", response_model=list[TemplateResponse])
+def list_templates(
+    type: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    q = db.query(EmailTemplate)
+    if type:
+        q = q.filter(EmailTemplate.type == type)
+    items = q.order_by(EmailTemplate.created_at.desc()).all()
+    return [
+        TemplateResponse(
+            id=t.id, name=t.name, type=t.type, content=t.content,
+            is_default=t.is_default,
+            created_at=t.created_at.isoformat() if t.created_at else "",
+        )
+        for t in items
+    ]
+
+
+@app.post("/api/templates", response_model=TemplateResponse)
+def create_template(data: TemplateCreate, db: Session = Depends(get_db)):
+    if data.is_default:
+        _clear_defaults(db, data.type)
+    t = EmailTemplate(name=data.name, type=data.type, content=data.content, is_default=data.is_default)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return TemplateResponse(
+        id=t.id, name=t.name, type=t.type, content=t.content,
+        is_default=t.is_default,
+        created_at=t.created_at.isoformat() if t.created_at else "",
+    )
+
+
+@app.put("/api/templates/{template_id}", response_model=TemplateResponse)
+def update_template(template_id: int, data: TemplateUpdate, db: Session = Depends(get_db)):
+    t = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    if data.is_default:
+        _clear_defaults(db, t.type)
+    t.name = data.name
+    t.content = data.content
+    t.is_default = data.is_default
+    db.commit()
+    db.refresh(t)
+    return TemplateResponse(
+        id=t.id, name=t.name, type=t.type, content=t.content,
+        is_default=t.is_default,
+        created_at=t.created_at.isoformat() if t.created_at else "",
+    )
+
+
+@app.delete("/api/templates/{template_id}")
+def delete_template(template_id: int, db: Session = Depends(get_db)):
+    t = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    db.delete(t)
+    db.commit()
+    return {"ok": True}
+
+
+def _clear_defaults(db: Session, template_type: str):
+    db.query(EmailTemplate).filter(
+        EmailTemplate.type == template_type,
+        EmailTemplate.is_default == True,  # noqa: E712
+    ).update({"is_default": False})
+
+
+# ── Signature CRUD ──────────────────────────────────────
+
+
+@app.get("/api/signatures", response_model=list[SignatureResponse])
+def list_signatures(db: Session = Depends(get_db)):
+    items = db.query(Signature).order_by(Signature.created_at.desc()).all()
+    return [
+        SignatureResponse(
+            id=s.id, name=s.name, content=s.content,
+            is_default=s.is_default,
+            created_at=s.created_at.isoformat() if s.created_at else "",
+        )
+        for s in items
+    ]
+
+
+@app.post("/api/signatures", response_model=SignatureResponse)
+def create_signature(data: SignatureCreate, db: Session = Depends(get_db)):
+    if data.is_default:
+        db.query(Signature).filter(Signature.is_default == True).update({"is_default": False})  # noqa: E712
+    s = Signature(name=data.name, content=data.content, is_default=data.is_default)
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return SignatureResponse(
+        id=s.id, name=s.name, content=s.content,
+        is_default=s.is_default,
+        created_at=s.created_at.isoformat() if s.created_at else "",
+    )
+
+
+@app.put("/api/signatures/{signature_id}", response_model=SignatureResponse)
+def update_signature(signature_id: int, data: SignatureUpdate, db: Session = Depends(get_db)):
+    s = db.query(Signature).filter(Signature.id == signature_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="签名不存在")
+    if data.is_default:
+        db.query(Signature).filter(Signature.is_default == True).update({"is_default": False})  # noqa: E712
+    s.name = data.name
+    s.content = data.content
+    s.is_default = data.is_default
+    db.commit()
+    db.refresh(s)
+    return SignatureResponse(
+        id=s.id, name=s.name, content=s.content,
+        is_default=s.is_default,
+        created_at=s.created_at.isoformat() if s.created_at else "",
+    )
+
+
+@app.delete("/api/signatures/{signature_id}")
+def delete_signature(signature_id: int, db: Session = Depends(get_db)):
+    s = db.query(Signature).filter(Signature.id == signature_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="签名不存在")
+    db.delete(s)
+    db.commit()
+    return {"ok": True}
+
+
 # ── Template rendering ──────────────────────────────────
 
 
-def render_account_body(template: str, data: SendEmailRequest) -> str:
-    return template.replace("{account}", data.account or "") \
-                   .replace("{password}", data.password or "") \
-                   .replace("{account_type}", data.account_type or "") \
-                   .replace("{remark}", data.remark or "")
-
-
-def render_subscription_body(template: str, data: SendEmailRequest) -> str:
+def render_account_list(accounts: list[AccountItem]) -> str:
     lines = []
-    for i, sub in enumerate(data.subscriptions, 1):
-        lines.append(f"  {i}. {sub.subscription_id} - {sub.subscription_name}")
-    subscription_list = "\n".join(lines) if lines else "（无）"
-    return template.replace("{subscription_list}", subscription_list) \
-                   .replace("{remark}", data.remark or "")
+    for i, acct in enumerate(accounts, 1):
+        lines.append(f"{i}. {acct.account} / {acct.password} / {acct.account_type}")
+    return "\n".join(lines) if lines else "（无）"
+
+
+def render_subscription_list(subs: list[SubscriptionItem]) -> str:
+    lines = []
+    for i, sub in enumerate(subs, 1):
+        lines.append(f"{i}. {sub.subscription_id} - {sub.subscription_name}")
+    return "\n".join(lines) if lines else "（无）"
+
+
+def render_body(template_content: str, data: SendEmailRequest) -> str:
+    """Substitute template variables into the markdown body."""
+    if data.email_type == "account":
+        body = template_content.replace("{account_list}", render_account_list(data.accounts))
+    else:
+        body = template_content.replace("{subscription_list}", render_subscription_list(data.subscriptions))
+    return body
 
 
 # ── Send Email API ──────────────────────────────────────
@@ -177,38 +416,64 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if not s or not s.email_address or not s.encrypted_password:
         raise HTTPException(status_code=400, detail="请先在设置中配置邮箱凭据")
 
+    body_md = data.body
+
+    # Append signature if selected
+    if data.signature_id:
+        sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
+        if sig and sig.content:
+            body_md = body_md + "\n\n---\n" + sig.content
+
+    # Validate
+    if data.email_type == "account" and not data.accounts:
+        raise HTTPException(status_code=400, detail="请至少添加一条账号")
+    if data.email_type == "subscription" and not data.subscriptions:
+        raise HTTPException(status_code=400, detail="请至少添加一条订阅")
+
+    # Convert markdown → HTML, keep markdown as plain text
+    body_html = markdown.markdown(body_md, output_format="html")
+    body_plain = body_md
+
+    # BCC self
+    bcc = s.email_address if data.bcc_self else ""
+
     smtp_password = decrypt_password(s.encrypted_password)
-
-    if data.email_type == "account":
-        if not data.account or not data.password or not data.account_type:
-            raise HTTPException(status_code=400, detail="请填写账号、密码和账户类型")
-        template = s.account_template or DEFAULT_ACCOUNT_TEMPLATE
-        body = render_account_body(template, data)
-    else:
-        if not data.subscriptions:
-            raise HTTPException(status_code=400, detail="请至少添加一条订阅")
-        template = s.subscription_template or DEFAULT_SUBSCRIPTION_TEMPLATE
-        body = render_subscription_body(template, data)
-
-    success, error_msg = send_email(
+    success, error_msg, msg_bytes = send_email(
         smtp_host=s.smtp_host,
         smtp_port=s.smtp_port,
         email_address=s.email_address,
         password=smtp_password,
         recipient=data.recipient,
         subject=data.subject,
-        body=body,
+        body_html=body_html,
+        body_plain=body_plain,
         cc=data.cc,
+        bcc=bcc,
     )
+
+    archive_status = ""
+    if success and msg_bytes and s.imap_host:
+        archived, archive_err = save_to_sent_items(
+            imap_host=s.imap_host,
+            imap_port=s.imap_port,
+            email_address=s.email_address,
+            password=smtp_password,
+            msg_bytes=msg_bytes,
+        )
+        archive_status = "archived" if archived else "failed"
+        if not archived:
+            logger.warning("IMAP archive failed: %s", archive_err)
 
     record = EmailHistory(
         email_type=data.email_type,
         recipient=data.recipient,
         cc=data.cc,
         subject=data.subject,
-        body=body,
+        body=body_md,
         status="success" if success else "failed",
         error_message=error_msg,
+        archive_status=archive_status,
+        template_id=data.template_id,
     )
     db.add(record)
     db.commit()
@@ -216,7 +481,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=500, detail=error_msg)
 
-    return {"ok": True, "history_id": record.id}
+    return {"ok": True, "history_id": record.id, "archive_status": archive_status}
 
 
 # ── History APIs ───────────────────────────────────────
@@ -254,6 +519,7 @@ def get_history(
                 subject=item.subject or "",
                 status=item.status,
                 error_message=item.error_message or "",
+                archive_status=item.archive_status or "",
                 sent_at=item.sent_at.isoformat() if item.sent_at else "",
             )
             for item in items

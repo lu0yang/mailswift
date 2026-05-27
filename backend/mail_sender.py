@@ -10,33 +10,43 @@ def send_email(
     password: str,
     recipient: str,
     subject: str,
-    body: str,
+    body_html: str,
+    body_plain: str,
     cc: str = "",
-) -> tuple[bool, str]:
-    """Send an email via SMTP. Returns (success, error_message)."""
-    msg = MIMEMultipart()
+    bcc: str = "",
+) -> tuple[bool, str, bytes]:
+    """Send an email via SMTP with HTML + plain text multipart.
+
+    Returns (success, error_message, raw_message_bytes).
+    The raw bytes can be used for IMAP APPEND archiving.
+    """
+    msg = MIMEMultipart("alternative")
     msg["From"] = email_address
     msg["To"] = recipient
     msg["Subject"] = subject
     if cc:
         msg["Cc"] = cc
-    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    msg.attach(MIMEText(body_plain, "plain", "utf-8"))
+    msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     all_recipients = [recipient]
     if cc:
         all_recipients += [addr.strip() for addr in cc.split(",") if addr.strip()]
+    if bcc:
+        all_recipients += [addr.strip() for addr in bcc.split(",") if addr.strip()]
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
             server.starttls()
             server.login(email_address, password)
             server.sendmail(email_address, all_recipients, msg.as_string())
-        return True, ""
+        return True, "", msg.as_bytes()
     except smtplib.SMTPAuthenticationError:
-        return False, "SMTP 认证失败，请检查邮箱和密码是否正确"
+        return False, "SMTP 认证失败，请检查邮箱和密码是否正确", b""
     except smtplib.SMTPConnectError:
-        return False, "无法连接到 SMTP 服务器，请检查网络"
+        return False, "无法连接到 SMTP 服务器，请检查网络", b""
     except smtplib.SMTPRecipientsRefused:
-        return False, "收件人地址被拒收"
+        return False, "收件人地址被拒收", b""
     except Exception as e:
-        return False, str(e)
+        return False, str(e), b""

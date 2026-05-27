@@ -39,6 +39,9 @@
             <span class="record-status" :class="item.status">
               {{ item.status === 'success' ? '已发送' : '发送失败' }}
             </span>
+            <span v-if="item.archive_status" class="archive-badge" :class="item.archive_status">
+              {{ item.archive_status === 'archived' ? '已存档' : '存档失败' }}
+            </span>
             <span class="record-time">{{ formatTime(item.sent_at) }}</span>
           </div>
         </div>
@@ -271,6 +274,22 @@ function formatTime(iso) {
 .record-status.failed {
   background: #ffe5e5;
   color: #ff3b30;
+}
+
+.archive-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.archive-badge.archived {
+  background: #f0f7ff;
+  color: #0071e3;
+}
+
+.archive-badge.failed {
+  background: #fff3e0;
+  color: #f59e0b;
 }
 
 .record-time {
