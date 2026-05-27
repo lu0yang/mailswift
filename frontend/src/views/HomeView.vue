@@ -114,7 +114,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, onActivated } from "vue";
 import { NInput, NSelect, NButton, NIcon, NCheckbox, useMessage } from "naive-ui";
 import { PersonOutline, CubeOutline, SendOutline } from "@vicons/ionicons5";
 import { marked } from "marked";
@@ -171,6 +171,20 @@ onMounted(async () => {
     signatures.value = sRes.data;
   } catch { /* ignore */ }
   loadDraft();
+});
+
+onActivated(async () => {
+  try {
+    const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()]);
+    templates.value = tRes.data;
+    signatures.value = sRes.data;
+    if (selectedTemplateId.value) {
+      const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
+      if (t) {
+        body.value = renderTemplateContent(t.content);
+      }
+    }
+  } catch { /* ignore */ }
 });
 
 // ── Template rendering ──────────────

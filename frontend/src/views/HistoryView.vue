@@ -94,7 +94,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onActivated } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import { ArrowBackOutline } from "@vicons/ionicons5";
 import { getHistory, deleteHistory } from "@/api";
@@ -115,6 +115,7 @@ const tabs = [
 ];
 
 onMounted(() => fetchHistory());
+onActivated(() => fetchHistory());
 
 async function fetchHistory() {
   loading.value = true;
