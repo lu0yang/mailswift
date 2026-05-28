@@ -129,6 +129,13 @@
       </n-tab-pane>
     </n-tabs>
 
+    <div class="reset-area">
+      <n-button text type="error" size="small" :loading="resetting" @click="handleReset">
+        初始化工具
+      </n-button>
+      <span class="reset-hint">恢复至默认设置，所有自定义模板、签名、登录凭据将被清除</span>
+    </div>
+
     <!-- Template Edit Modal -->
     <n-modal v-model:show="templateModalVisible" preset="card" title="编辑模板" style="max-width:800px">
       <div class="form-row-2col">
@@ -218,6 +225,7 @@ import {
   getSettings, updateSettings, testSmtp,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
+  resetApp,
 } from "@/api";
 
 const message = useMessage();
@@ -307,6 +315,42 @@ async function handleTest() {
   } finally {
     testing.value = false;
   }
+}
+
+// ── Reset ────────────────────────────
+
+const resetting = ref(false);
+
+async function handleReset() {
+  dialog.warning({
+    title: "确认初始化",
+    content: "将清除所有自定义模板、签名和登录凭据，恢复至默认状态。此操作不可撤销，确定继续？",
+    positiveText: "确定",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      resetting.value = true;
+      try {
+        await resetApp();
+        // Clear local state
+        emailAddress.value = "";
+        password.value = "";
+        isConfigured.value = false;
+        connectionTested.value = false;
+        showPasswordUpdate.value = false;
+        templates.value = [];
+        signatures.value = [];
+        // Reload templates (defaults) and refresh header
+        await loadTemplates();
+        await loadSignatures();
+        refreshAccount();
+        message.success("已恢复至默认状态");
+      } catch (err) {
+        message.error(err.response?.data?.detail || "初始化失败");
+      } finally {
+        resetting.value = false;
+      }
+    },
+  });
 }
 
 // ── Templates ─────────────────────────
@@ -644,6 +688,19 @@ async function handleDeleteSignature(id) {
 .update-link:hover {
   color: #0077ed;
   text-decoration: underline;
+}
+
+.reset-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 28px;
+  padding: 12px 0;
+}
+
+.reset-hint {
+  font-size: 12px;
+  color: #86868b;
 }
 
 .test-hint {

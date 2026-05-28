@@ -670,6 +670,29 @@ def delete_history(record_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.post("/api/reset")
+def reset_app(db: Session = Depends(get_db)):
+    """Reset the application to factory defaults: clear credentials,
+    delete all templates/signatures/history, and re-create default templates."""
+    # Clear credentials
+    s = db.query(Settings).first()
+    if s:
+        s.encrypted_password = ""
+        s.email_address = ""
+        db.flush()
+
+    # Delete all user data
+    db.query(EmailHistory).delete()
+    db.query(Signature).delete()
+    db.query(EmailTemplate).delete()
+    db.flush()
+
+    # Re-create default templates
+    _migrate_templates(db)
+
+    return {"ok": True}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}

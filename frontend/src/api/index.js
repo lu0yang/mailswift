@@ -63,4 +63,8 @@ export function deleteSignature(id) {
   return api.delete(`/signatures/${id}`);
 }
 
+export function resetApp() {
+  return api.post("/reset");
+}
+
 export default api;
