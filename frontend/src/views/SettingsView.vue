@@ -197,8 +197,35 @@
         <n-input v-model:value="sigForm.name" placeholder="例如：工作签名" size="large" />
       </div>
       <div class="modal-field">
-        <label class="field-label">签名内容</label>
-        <RichTextEditor v-model="sigForm.content" />
+        <div class="sig-mode-bar">
+          <span class="field-label" style="margin-bottom:0">签名内容</span>
+          <div class="sig-mode-tabs">
+            <button
+              class="sig-mode-btn"
+              :class="{ active: sigMode === 'richtext' }"
+              @click="sigMode = 'richtext'"
+            >富文本编辑</button>
+            <button
+              class="sig-mode-btn"
+              :class="{ active: sigMode === 'html' }"
+              @click="sigMode = 'html'"
+            >从 Outlook 粘贴</button>
+          </div>
+        </div>
+        <RichTextEditor v-if="sigMode === 'richtext'" v-model="sigForm.content" />
+        <div v-else class="html-paste-wrap">
+          <n-input
+            v-model:value="sigForm.content"
+            type="textarea"
+            :autosize="{ minRows: 6, maxRows: 16 }"
+            placeholder="从 Outlook 复制签名后，在此粘贴 HTML 源代码…"
+            size="large"
+          />
+          <details class="preview-details" style="margin-top:12px">
+            <summary class="preview-summary">预览效果</summary>
+            <div class="preview-box" v-html="sigForm.content"></div>
+          </details>
+        </div>
       </div>
       <div class="modal-field">
         <n-checkbox v-model:checked="sigForm.is_default">设为默认签名</n-checkbox>
@@ -542,6 +569,7 @@ const signatures = ref([]);
 const sigModalVisible = ref(false);
 const sigSaving = ref(false);
 const editingSigId = ref(null);
+const sigMode = ref("richtext");
 const sigForm = ref({ name: "", content: "", is_default: false });
 
 async function loadSignatures() {
@@ -555,9 +583,11 @@ function openSignatureModal(sig) {
   if (sig) {
     editingSigId.value = sig.id;
     sigForm.value = { name: sig.name, content: sig.content, is_default: sig.is_default };
+    sigMode.value = /<table|<img|<td|<tr|style="/i.test(sig.content) ? "html" : "richtext";
   } else {
     editingSigId.value = null;
     sigForm.value = { name: "", content: "", is_default: false };
+    sigMode.value = "richtext";
   }
   sigModalVisible.value = true;
 }
@@ -809,6 +839,47 @@ async function handleDeleteSignature(id) {
   padding: 40px 0;
   color: #86868b;
   font-size: 14px;
+}
+
+/* ── Signature mode tabs ───────────── */
+
+.sig-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.sig-mode-tabs {
+  display: flex;
+  gap: 1px;
+  background: #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sig-mode-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: #fff;
+  color: #6e6e73;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sig-mode-btn:hover {
+  color: #1d1d1f;
+}
+
+.sig-mode-btn.active {
+  background: #0071e3;
+  color: #fff;
+}
+
+.html-paste-wrap {
+  margin-top: 6px;
 }
 
 /* ── Modal ────────────────────────── */
