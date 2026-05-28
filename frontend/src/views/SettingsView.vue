@@ -338,8 +338,8 @@ const accountVars = [
 
 const subscriptionVars = [
   { label: "subscription/subscriptions", marker: "{subscription_plural}" },
-  { label: "订阅 ID", marker: "{subscription_id}" },
-  { label: "订阅名称", marker: "{subscription_name}" },
+  { label: "Subscription Id", marker: "{subscription_id}" },
+  { label: "Subscription Name", marker: "{subscription_name}" },
 ];
 
 const headerVariables = computed(() => {
