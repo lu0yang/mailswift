@@ -343,8 +343,9 @@ const subscriptionVars = [
 ];
 
 const headerVariables = computed(() => {
-  if (templateForm.value.type === "account") return [accountVars[0]];
-  return [subscriptionVars[0]];
+  const haveHas = { label: "have/has", marker: "{have_has}" };
+  if (templateForm.value.type === "account") return [accountVars[0], haveHas];
+  return [subscriptionVars[0], haveHas];
 });
 
 const itemVariables = computed(() => {

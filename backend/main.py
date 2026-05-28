@@ -445,8 +445,10 @@ def _render_new_format(tpl: dict, data: SendEmailRequest) -> str:
     if data.email_type == "account":
         count = len(data.accounts)
         plural_val = "account" if count == 1 else "accounts"
+        have_has = "has" if count == 1 else "have"
         header = header.replace("{account_plural}", plural_val)
         header = header.replace("{subscription_plural}", "subscription")
+        header = header.replace("{have_has}", have_has)
 
         items = []
         for acct in data.accounts:
@@ -457,8 +459,10 @@ def _render_new_format(tpl: dict, data: SendEmailRequest) -> str:
     else:
         count = len(data.subscriptions)
         plural_val = "subscription" if count == 1 else "subscriptions"
+        have_has = "has" if count == 1 else "have"
         header = header.replace("{subscription_plural}", plural_val)
         header = header.replace("{account_plural}", "account")
+        header = header.replace("{have_has}", have_has)
 
         items = []
         for sub in data.subscriptions:
@@ -476,6 +480,7 @@ def _render_plain_markers(text: str, data: SendEmailRequest) -> str:
     if data.email_type == "account":
         count = len(data.accounts)
         text = text.replace("{account_plural}", "account" if count == 1 else "accounts")
+        text = text.replace("{have_has}", "has" if count == 1 else "have")
         text = text.replace("{account_list}", render_account_list(data.accounts))
         # Per-item markers: build a simple list for multi-account; single replacement for one
         if count == 1:
@@ -493,6 +498,7 @@ def _render_plain_markers(text: str, data: SendEmailRequest) -> str:
     else:
         count = len(data.subscriptions)
         text = text.replace("{subscription_plural}", "subscription" if count == 1 else "subscriptions")
+        text = text.replace("{have_has}", "has" if count == 1 else "have")
         text = text.replace("{subscription_list}", render_subscription_list(data.subscriptions))
         if count == 1:
             s = data.subscriptions[0]

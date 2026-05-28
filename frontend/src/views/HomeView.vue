@@ -243,6 +243,7 @@ function renderNewFormat(tpl) {
     const accounts = formData.value.accounts || [];
     const count = accounts.filter((a) => a.account || a.password || a.account_type).length;
     header = header.replaceAll("{account_plural}", count === 1 ? "account" : "accounts");
+    header = header.replaceAll("{have_has}", count === 1 ? "has" : "have");
 
     const items = accounts
       .filter((a) => a.account || a.password || a.account_type)
@@ -261,6 +262,7 @@ function renderNewFormat(tpl) {
     const subs = formData.value.subscriptions || [];
     const count = subs.filter((s) => s.subscription_id || s.subscription_name).length;
     header = header.replaceAll("{subscription_plural}", count === 1 ? "subscription" : "subscriptions");
+    header = header.replaceAll("{have_has}", count === 1 ? "has" : "have");
 
     const items = subs
       .filter((s) => s.subscription_id || s.subscription_name)
@@ -281,6 +283,7 @@ function substitutePlainMarkers(text) {
   if (emailType.value === "account") {
     const accounts = (formData.value.accounts || []).filter((a) => a.account || a.password || a.account_type);
     text = text.replaceAll("{account_plural}", accounts.length === 1 ? "account" : "accounts");
+    text = text.replaceAll("{have_has}", accounts.length === 1 ? "has" : "have");
     text = text.replace("{account_list}", accounts
       .map((a, i) => `${i + 1}. ${a.account} / ${a.password} / ${a.account_type}`)
       .join("  \n") || "（无）");
@@ -294,6 +297,7 @@ function substitutePlainMarkers(text) {
   } else {
     const subs = (formData.value.subscriptions || []).filter((s) => s.subscription_id || s.subscription_name);
     text = text.replaceAll("{subscription_plural}", subs.length === 1 ? "subscription" : "subscriptions");
+    text = text.replaceAll("{have_has}", subs.length === 1 ? "has" : "have");
     text = text.replace("{subscription_list}", subs
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`)
       .join("  \n") || "（无）");
@@ -371,6 +375,7 @@ watch([formData, emailType], () => {
     "{account_plural}", "{subscription_plural}",
     "{username}", "{password}", "{account_type}",
     "{subscription_id}", "{subscription_name}",
+    "{have_has}",
   ];
   if (body.value && markers.some((m) => body.value.includes(m))) {
     bodySource.value = body.value;
