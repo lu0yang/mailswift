@@ -1,5 +1,4 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from .database import Base
@@ -37,8 +36,8 @@ class Settings(Base):
     encrypted_password = Column(Text, default="")
     account_template = Column(Text, default="")
     subscription_template = Column(Text, default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
-    updated_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 
 
 class EmailTemplate(Base):
@@ -48,7 +47,7 @@ class EmailTemplate(Base):
     name = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)
     content = Column(Text, default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 
 
 class Signature(Base):
@@ -58,7 +57,7 @@ class Signature(Base):
     name = Column(String(255), nullable=False)
     content = Column(Text, default="")
     is_default = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 
 
 class EmailHistory(Base):
@@ -73,4 +72,4 @@ class EmailHistory(Base):
     status = Column(String(20), nullable=False)
     error_message = Column(Text, default="")
     template_id = Column(Integer, nullable=True)
-    sent_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
+    sent_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))

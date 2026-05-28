@@ -2,8 +2,7 @@ import logging
 import re
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import markdown
@@ -224,7 +223,7 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     s.email_address = payload.email_address
     if payload.password:
         s.encrypted_password = encrypt_password(payload.password)
-    s.updated_at = datetime.now(ZoneInfo("Asia/Shanghai"))
+    s.updated_at = datetime.now(timezone(timedelta(hours=8)))
     db.commit()
     return {"ok": True}
 
