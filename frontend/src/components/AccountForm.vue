@@ -58,8 +58,8 @@ const emit = defineEmits(["update:modelValue"]);
 let keyCounter = 0;
 
 const accountTypeOptions = [
-  { label: "Devops", value: "Devops" },
-  { label: "Nodevops", value: "Nodevops" },
+  { label: "DevOps", value: "DevOps" },
+  { label: "DevOps Non Restricted", value: "DevOps Non Restricted" },
 ];
 
 const local = reactive({
