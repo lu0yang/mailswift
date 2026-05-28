@@ -77,6 +77,7 @@
         :autosize="{ minRows: 6, maxRows: 20 }"
         size="large"
         placeholder="在此编辑邮件正文，支持 Markdown 语法…"
+        @update:value="onBodyEdited"
       />
     </div>
 
@@ -122,7 +123,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onActivated } from "vue";
+import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount } from "vue";
 import { NInput, NSelect, NButton, NIcon, NModal, useMessage } from "naive-ui";
 import { PersonOutline, CubeOutline, SendOutline, EyeOutline, TrashOutline } from "@vicons/ionicons5";
 import { marked } from "marked";
@@ -139,6 +140,7 @@ const subject = ref("");
 const recipient = ref("");
 const cc = ref("");
 const body = ref("");
+const userEditedBody = ref(false);
 const previewVisible = ref(false);
 const sending = ref(false);
 
@@ -194,6 +196,7 @@ onActivated(async () => {
       const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
       if (t) {
         bodySource.value = t.content;
+        userEditedBody.value = false;
         body.value = renderTemplateContent(t.content);
       }
     }
@@ -231,6 +234,7 @@ function switchType(type) {
   selectedTemplateId.value = null;
   bodySource.value = "";
   body.value = "";
+  userEditedBody.value = false;
   formData.value = {};
   loadDraft();
 }
@@ -243,6 +247,7 @@ function handleClear() {
   cc.value = "";
   body.value = "";
   bodySource.value = "";
+  userEditedBody.value = false;
   formData.value = {};
   clearDraft();
 }
@@ -256,14 +261,21 @@ function onTemplateChange(id) {
   const t = templates.value.find((tp) => tp.id === id);
   if (t) {
     bodySource.value = t.content;
+    userEditedBody.value = false;
     body.value = renderTemplateContent(t.content);
   }
 }
 
+function onBodyEdited() {
+  // @update:value only fires for user input, not programmatic changes
+  userEditedBody.value = true;
+}
+
 // Re-render body when formData changes
 watch([formData, emailType], () => {
-  // If a template is selected, always re-render from its content
   if (selectedTemplateId.value) {
+    // Template selected: re-render from template content (unless user edited manually)
+    if (userEditedBody.value) return;
     const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
     if (t) {
       bodySource.value = t.content;
@@ -271,7 +283,9 @@ watch([formData, emailType], () => {
     }
     return;
   }
-  // No template selected — auto-detect manually typed variables in the body
+  // No template selected — auto-detect manually typed variables in the body.
+  // This path always runs; userEditedBody doesn't block it because the user
+  // explicitly typed {account_list} / {subscription_list} and expects sync.
   if (body.value && (body.value.includes("{account_list}") || body.value.includes("{subscription_list}"))) {
     bodySource.value = body.value;
     body.value = renderTemplateContent(bodySource.value);
@@ -324,9 +338,14 @@ watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipient, c
   draftTimer = setTimeout(saveDraft, 3000);
 }, { deep: true });
 
+onBeforeUnmount(() => {
+  clearTimeout(draftTimer);
+});
+
 // ── Send ────────────────────────────
 
 async function handleSend() {
+  if (sending.value) return;  // guard against double-click
   sending.value = true;
   try {
     const payload = {
