@@ -4,21 +4,26 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from .database import Base
 
 
-DEFAULT_ACCOUNT_TEMPLATE = """您好，
+DEFAULT_ACCOUNT_TEMPLATE = (
+    '{"header":"<p>Hi DearCustomer:</p><p>Your {account_plural} have been created as below:</p>",'
+    '"item":"<p>Account_Type: {account_type}</p><p>Username: {username}</p><p>Password: {password}</p>",'
+    '"footer":"<p>Please follow the below instruction to create your subscription.</p>'
+    '<ol><li><p>Get an Azure DevOps Account | Sovereign Onboarding Support (eng.ms)</p></li></ol>"}'
+)
 
-您的账号已创建完成，信息如下：
+DEFAULT_SUBSCRIPTION_TEMPLATE = (
+    '{"header":"<p>Hi DearCustomer,</p><p>The {subscription_plural} has been created,'
+    ' and the info as below, pls verify. Thanks.</p>",'
+    '"item":"<p>Subscription Id: {subscription_id}</p><p>Subscription Name: {subscription_name}</p>",'
+    '"footer":""}'
+)
 
-{account_list}
-
-如有任何疑问，请联系 IT 支持团队。"""
-
-DEFAULT_SUBSCRIPTION_TEMPLATE = """您好，
-
-您的订阅已创建完成，信息如下：
-
-{subscription_list}
-
-如有任何疑问，请联系 IT 支持团队。"""
+DEFAULT_PASSWORD_RESET_TEMPLATE = (
+    '{"header":"<p>Hi DearCustomer:</p><p>Your pwd have been reset as below:</p>",'
+    '"item":"<p>Account_Type: {account_type}</p><p>Username: {username}</p><p>Password: {password}</p>",'
+    '"footer":"<p>Please follow the below instruction to create your subscription.</p>'
+    '<ol><li><p>Get an Azure DevOps Account | Sovereign Onboarding Support (eng.ms)</p></li></ol>"}'
+)
 
 
 class Settings(Base):

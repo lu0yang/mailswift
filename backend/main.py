@@ -17,6 +17,7 @@ from .database import init_db, get_db
 from .models import (
     Settings, EmailHistory, EmailTemplate, Signature,
     DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
+    DEFAULT_PASSWORD_RESET_TEMPLATE,
 )
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_smtp_connection
@@ -59,7 +60,7 @@ def _migrate_schema(db: Session):
 
 
 def _migrate_templates(db: Session):
-    """Migrate legacy Settings template fields into email_templates table."""
+    """Create default email templates on first launch."""
     existing = db.query(EmailTemplate).count()
     if existing > 0:
         return
@@ -67,14 +68,15 @@ def _migrate_templates(db: Session):
     s = db.query(Settings).first()
     account_content = DEFAULT_ACCOUNT_TEMPLATE
     sub_content = DEFAULT_SUBSCRIPTION_TEMPLATE
+    pwd_reset_content = DEFAULT_PASSWORD_RESET_TEMPLATE
     if s:
         if s.account_template:
             account_content = s.account_template
-        if s.subscription_template:
-            sub_content = s.subscription_template
+            pwd_reset_content = s.account_template
 
-    db.add(EmailTemplate(name="默认账号模板", type="account", content=account_content))
-    db.add(EmailTemplate(name="默认订阅模板", type="subscription", content=sub_content))
+    db.add(EmailTemplate(name="Create DevOps/DevOps NonRestricted", type="account", content=account_content))
+    db.add(EmailTemplate(name="Password reset", type="account", content=pwd_reset_content))
+    db.add(EmailTemplate(name="Request Subscription", type="subscription", content=sub_content))
     db.commit()
     logger.info("Migrated legacy templates to email_templates table")
 
