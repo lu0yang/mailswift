@@ -59,7 +59,7 @@ let keyCounter = 0;
 
 const accountTypeOptions = [
   { label: "DevOps", value: "DevOps" },
-  { label: "DevOps Non Restricted", value: "DevOps Non Restricted" },
+  { label: "DevOps NonRestricted", value: "DevOps NonRestricted" },
 ];
 
 const local = reactive({
