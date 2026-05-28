@@ -63,6 +63,10 @@ export function deleteSignature(id) {
   return api.delete(`/signatures/${id}`);
 }
 
+export function encodeImage(url) {
+  return api.post("/encode-image", { url });
+}
+
 export function resetApp() {
   return api.post("/reset");
 }

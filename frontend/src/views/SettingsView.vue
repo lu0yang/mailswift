@@ -221,9 +221,10 @@
             @paste="onSigPaste"
             tabindex="0"
           >
-            <div v-if="!sigForm.content" class="paste-placeholder">
+            <div v-if="!sigForm.content && !sigImageConverting" class="paste-placeholder">
               从 Outlook 复制签名后，在此处 Ctrl+V 粘贴
             </div>
+            <div v-else-if="sigImageConverting" class="paste-converting">正在处理图片…</div>
             <div v-else class="paste-done">已捕获签名</div>
           </div>
           <div class="paste-hint">点击上方区域后按 Ctrl+V 粘贴，工具自动提取 HTML 格式</div>
@@ -258,7 +259,7 @@ import {
   getSettings, updateSettings, testSmtp,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
-  resetApp,
+  resetApp, encodeImage,
 } from "@/api";
 
 const message = useMessage();
@@ -576,6 +577,7 @@ const sigModalVisible = ref(false);
 const sigSaving = ref(false);
 const editingSigId = ref(null);
 const sigMode = ref("richtext");
+const sigImageConverting = ref(false);
 const sigForm = ref({ name: "", content: "", is_default: false });
 
 async function loadSignatures() {
@@ -585,14 +587,42 @@ async function loadSignatures() {
   } catch { /* ignore */ }
 }
 
-function onSigPaste(e) {
+async function onSigPaste(e) {
   e.preventDefault();
   const html = e.clipboardData?.getData("text/html");
-  if (html) {
-    sigForm.value.content = html;
-  }
-  // Clear the editable area text so only our status message shows
+  if (!html) return;
+
   e.target.innerHTML = "";
+
+  // Parse HTML and find images that need base64 conversion
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const imgs = doc.querySelectorAll("img");
+  const fileImgs = [];
+
+  imgs.forEach((img) => {
+    const src = img.getAttribute("src");
+    if (src && (src.startsWith("file://") || /^[A-Z]:[/\\]/i.test(src))) {
+      fileImgs.push({ img, src });
+    }
+  });
+
+  if (fileImgs.length > 0) {
+    sigImageConverting.value = true;
+
+    for (const { img, src } of fileImgs) {
+      try {
+        const { data } = await encodeImage(src);
+        img.setAttribute("src", data.data_uri);
+      } catch {
+        // Keep original src if conversion fails
+      }
+    }
+
+    sigImageConverting.value = false;
+  }
+
+  sigForm.value.content = doc.body.innerHTML;
 }
 
 function openSignatureModal(sig) {
@@ -929,6 +959,12 @@ async function handleDeleteSignature(id) {
   pointer-events: none;
 }
 
+.paste-converting {
+  color: #f59e0b;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .paste-done {
   color: #34c759;
   font-size: 14px;
@@ -1000,7 +1036,7 @@ async function handleDeleteSignature(id) {
   border: 1px solid #e0e0e0;
   border-radius: 10px;
   padding: 16px;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.7;
   color: #1d1d1f;
   background: #fafafa;

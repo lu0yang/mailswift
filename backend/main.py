@@ -285,6 +285,46 @@ def test_smtp(data: TestSmtpRequest | None = None, db: Session = Depends(get_db)
     return {"ok": True}
 
 
+# ── Image encoding (for pasted Outlook signatures) ─────
+
+class EncodeImageRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/encode-image")
+def encode_image(data: EncodeImageRequest):
+    from urllib.parse import urlparse, unquote
+    from urllib.request import url2pathname
+    import base64
+    import mimetypes
+
+    parsed = urlparse(data.url)
+    if parsed.scheme not in ("file", ""):
+        raise HTTPException(status_code=400, detail="Only file:// URLs are supported")
+
+    filepath = url2pathname(parsed.path)
+
+    # On Windows, path may have a leading slash (e.g. /C:/Users/...)
+    if filepath and len(filepath) > 2 and filepath[0] == "/" and filepath[2] == ":":
+        filepath = filepath[1:]
+
+    if not Path(filepath).exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {filepath}")
+
+    try:
+        with open(filepath, "rb") as f:
+            img_data = f.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot read file: {e}")
+
+    mime_type, _ = mimetypes.guess_type(filepath)
+    if not mime_type or not mime_type.startswith("image/"):
+        mime_type = "image/png"
+
+    b64 = base64.b64encode(img_data).decode("ascii")
+    return {"data_uri": f"data:{mime_type};base64,{b64}"}
+
+
 # ── Template CRUD ───────────────────────────────────────
 
 

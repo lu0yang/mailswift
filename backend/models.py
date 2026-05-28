@@ -8,7 +8,7 @@ DEFAULT_ACCOUNT_TEMPLATE = (
     '{"header":"<p>Hi DearCustomer:</p><p>Your {account_plural} {have_has} been created as below:</p>",'
     '"item":"<p>Account_Type: {account_type}</p><p>Username: {username}</p><p>Password: {password}</p>",'
     '"footer":"<p>Please follow the below instruction to create your subscription.</p>'
-    '<ol><li><p>Get an Azure DevOps Account | Sovereign Onboarding Support (eng.ms)</p></li></ol>"}'
+    '<ol><li><a href=\\"https://eng.ms/docs/cloud-ai-platform/azure-edge-platform-aep/aep-sovereign/international-sovereign-platform-team-/azure-platform-operation-support/sovereign-clouds-onboarding-support/subscription/devops/devops_getaccountsubscription\\">Get an Azure DevOps Account | Sovereign Onboarding Support (eng.ms)</a></li></ol>"}'
 )
 
 DEFAULT_SUBSCRIPTION_TEMPLATE = (
@@ -22,7 +22,7 @@ DEFAULT_PASSWORD_RESET_TEMPLATE = (
     '{"header":"<p>Hi DearCustomer:</p><p>Your pwd {have_has} been reset as below:</p>",'
     '"item":"<p>Account_Type: {account_type}</p><p>Username: {username}</p><p>Password: {password}</p>",'
     '"footer":"<p>Please follow the below instruction to create your subscription.</p>'
-    '<ol><li><p>Get an Azure DevOps Account | Sovereign Onboarding Support (eng.ms)</p></li></ol>"}'
+    '<ol><li><a href=\\"https://eng.ms/docs/cloud-ai-platform/azure-edge-platform-aep/aep-sovereign/international-sovereign-platform-team-/azure-platform-operation-support/sovereign-clouds-onboarding-support/subscription/devops/devops_getaccountsubscription\\">Get an Azure DevOps Account | Sovereign Onboarding Support (eng.ms)</a></li></ol>"}'
 )
 
 

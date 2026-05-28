@@ -210,7 +210,7 @@ onBeforeUnmount(() => {
 .rte-content {
   padding: 12px 14px;
   min-height: 100px;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.7;
   color: #1d1d1f;
   outline: none;

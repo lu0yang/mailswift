@@ -595,7 +595,7 @@ function clearDraft() {
 }
 
 .preview-body {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.7;
   color: #1d1d1f;
   word-break: break-word;
