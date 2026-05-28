@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from .database import Base
@@ -34,12 +35,10 @@ class Settings(Base):
     smtp_port = Column(Integer, default=587)
     email_address = Column(String(255), default="")
     encrypted_password = Column(Text, default="")
-    imap_host = Column(String(255), default="partner.outlook.cn")
-    imap_port = Column(Integer, default=993)
     account_template = Column(Text, default="")
     subscription_template = Column(Text, default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
+    updated_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
 
 
 class EmailTemplate(Base):
@@ -49,7 +48,7 @@ class EmailTemplate(Base):
     name = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)
     content = Column(Text, default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
 
 
 class Signature(Base):
@@ -59,7 +58,7 @@ class Signature(Base):
     name = Column(String(255), nullable=False)
     content = Column(Text, default="")
     is_default = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
 
 
 class EmailHistory(Base):
@@ -73,6 +72,5 @@ class EmailHistory(Base):
     body = Column(Text, default="")
     status = Column(String(20), nullable=False)
     error_message = Column(Text, default="")
-    archive_status = Column(String(20), default="")
     template_id = Column(Integer, nullable=True)
-    sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    sent_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")))

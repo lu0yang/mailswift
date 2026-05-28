@@ -56,11 +56,13 @@
     <div class="form-row">
       <div class="form-col">
         <label class="field-label">收件人 *</label>
-        <n-input v-model:value="recipient" placeholder="user@example.com" size="large" clearable />
+        <n-input v-model:value="recipient" placeholder="user@example.com" size="large" clearable :status="recipientError ? 'error' : undefined" />
+        <span v-if="recipientError" class="field-error">{{ recipientError }}</span>
       </div>
       <div class="form-col">
         <label class="field-label">抄送 CC</label>
-        <n-input v-model:value="cc" placeholder="cc@example.com（多人用逗号分隔）" size="large" clearable />
+        <n-input v-model:value="cc" placeholder="cc@example.com（多人用逗号分隔）" size="large" clearable :status="ccError ? 'error' : undefined" />
+        <span v-if="ccError" class="field-error">{{ ccError }}</span>
       </div>
     </div>
 
@@ -151,6 +153,29 @@ const bodySource = ref("");
 
 const turndown = new TurndownService({ linkStyle: "referenced", headingStyle: "atx" });
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(str) {
+  return EMAIL_RE.test(str.trim());
+}
+
+const recipientError = computed(() => {
+  if (!recipient.value) return "";
+  if (!isValidEmail(recipient.value)) return "邮箱格式不正确";
+  return "";
+});
+
+const ccError = computed(() => {
+  if (!cc.value) return "";
+  const invalid = cc.value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((addr) => !isValidEmail(addr));
+  if (invalid.length > 0) return `以下地址格式不正确：${invalid.join("、")}`;
+  return "";
+});
+
 const templateOptions = computed(() =>
   templates.value
     .filter((t) => t.type === emailType.value)
@@ -162,8 +187,14 @@ const signatureOptions = computed(() =>
 );
 
 const htmlPreview = computed(() => {
-  if (!body.value) return "";
-  return marked.parse(body.value);
+  let html = body.value ? marked.parse(body.value) : "";
+  if (selectedSignatureId.value) {
+    const sig = signatures.value.find((s) => s.id === selectedSignatureId.value);
+    if (sig && sig.content) {
+      html += "<hr>" + sig.content;
+    }
+  }
+  return html;
 });
 
 const canSend = computed(() => {
@@ -437,6 +468,21 @@ onBeforeUnmount(() => {
 
 async function handleSend() {
   if (sending.value) return;  // guard against double-click
+  if (!isValidEmail(recipient.value)) {
+    message.warning("收件人邮箱格式不正确");
+    return;
+  }
+  if (cc.value) {
+    const invalidCc = cc.value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((addr) => !isValidEmail(addr));
+    if (invalidCc.length > 0) {
+      message.warning(`CC 以下地址格式不正确：${invalidCc.join("、")}`);
+      return;
+    }
+  }
   sending.value = true;
   try {
     const payload = {
@@ -462,10 +508,9 @@ async function handleSend() {
         subscription_name: s.subscription_name,
       }));
     }
-    const res = await sendEmail(payload);
-    const archiveMsg = res.data.archive_status === "archived" ? "，已存档至已发送" : "";
-    message.success("邮件发送成功" + archiveMsg);
-    clearDraft();
+    await sendEmail(payload);
+    message.success("邮件已提交至 SMTP 服务器，最终投递状态请留意退信通知");
+    handleClear();
   } catch (err) {
     message.error(err.response?.data?.detail || "发送失败");
   } finally {
@@ -568,6 +613,13 @@ function clearDraft() {
   font-weight: 500;
   color: #1d1d1f;
   margin-bottom: 6px;
+}
+
+.field-error {
+  display: block;
+  font-size: 12px;
+  color: #d03050;
+  margin-top: 4px;
 }
 
 .form-row {

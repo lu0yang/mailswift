@@ -33,22 +33,23 @@
             <div class="record-type-badge" :class="item.email_type">
               {{ item.email_type === 'account' ? '账号' : '订阅' }}
             </div>
-            <span class="record-recipient">{{ item.recipient }}</span>
+            <span class="record-recipient">{{ item.subject || '（无标题）' }}</span>
           </div>
           <div class="record-right">
             <span class="record-status" :class="item.status">
               {{ item.status === 'success' ? '已发送' : '发送失败' }}
-            </span>
-            <span v-if="item.archive_status" class="archive-badge" :class="item.archive_status">
-              {{ item.archive_status === 'archived' ? '已存档' : '存档失败' }}
             </span>
             <span class="record-time">{{ formatTime(item.sent_at) }}</span>
           </div>
         </div>
         <div v-if="expandedId === item.id" class="record-detail">
           <div class="detail-row">
+            <span class="detail-label">收件人</span>
+            <span>{{ item.recipient }}</span>
+          </div>
+          <div class="detail-row">
             <span class="detail-label">主题</span>
-            <span>{{ item.subject }}</span>
+            <span>{{ item.subject || '（无标题）' }}</span>
           </div>
           <div v-if="item.error_message" class="detail-row error">
             <span class="detail-label">失败原因</span>
@@ -285,22 +286,6 @@ function formatTime(iso) {
 .record-status.failed {
   background: #ffe5e5;
   color: #ff3b30;
-}
-
-.archive-badge {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.archive-badge.archived {
-  background: #f0f7ff;
-  color: #0071e3;
-}
-
-.archive-badge.failed {
-  background: #fff3e0;
-  color: #f59e0b;
 }
 
 .record-time {

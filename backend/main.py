@@ -2,7 +2,8 @@ import logging
 import re
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import markdown
@@ -21,7 +22,6 @@ from .models import (
 )
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_smtp_connection
-from .imap_saver import save_to_sent_items
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -39,20 +39,9 @@ def _migrate_schema(db: Session):
     import sqlalchemy as sa
     insp = sa.inspect(db.get_bind())
 
-    # settings table
-    settings_cols = {c["name"] for c in insp.get_columns("settings")}
-    if "imap_host" not in settings_cols:
-        db.execute(sa.text("ALTER TABLE settings ADD COLUMN imap_host VARCHAR(255) DEFAULT 'partner.outlook.cn'"))
-        db.execute(sa.text("UPDATE settings SET imap_host = 'partner.outlook.cn' WHERE imap_host IS NULL"))
-    if "imap_port" not in settings_cols:
-        db.execute(sa.text("ALTER TABLE settings ADD COLUMN imap_port INTEGER DEFAULT 993"))
-        db.execute(sa.text("UPDATE settings SET imap_port = 993 WHERE imap_port IS NULL"))
-
     # email_history table
     if "email_history" in insp.get_table_names():
         history_cols = {c["name"] for c in insp.get_columns("email_history")}
-        if "archive_status" not in history_cols:
-            db.execute(sa.text("ALTER TABLE email_history ADD COLUMN archive_status VARCHAR(20) DEFAULT ''"))
         if "template_id" not in history_cols:
             db.execute(sa.text("ALTER TABLE email_history ADD COLUMN template_id INTEGER"))
 
@@ -111,8 +100,6 @@ class SettingsUpdate(BaseModel):
     smtp_port: int = 587
     email_address: str = ""
     password: str = ""
-    imap_host: str = "partner.outlook.cn"
-    imap_port: int = 993
 
 
 class SettingsResponse(BaseModel):
@@ -120,8 +107,6 @@ class SettingsResponse(BaseModel):
     smtp_port: int
     email_address: str
     password_masked: str
-    imap_host: str
-    imap_port: int
     updated_at: str | None
 
 
@@ -156,7 +141,6 @@ class HistoryResponse(BaseModel):
     subject: str
     status: str
     error_message: str
-    archive_status: str
     sent_at: str
 
 
@@ -218,8 +202,6 @@ def get_settings(db: Session = Depends(get_db)):
             smtp_port=587,
             email_address="",
             password_masked="",
-            imap_host="partner.outlook.cn",
-            imap_port=993,
             updated_at=None,
         )
     return SettingsResponse(
@@ -227,8 +209,6 @@ def get_settings(db: Session = Depends(get_db)):
         smtp_port=s.smtp_port or 587,
         email_address=s.email_address or "",
         password_masked="********" if s.encrypted_password else "",
-        imap_host=s.imap_host or "partner.outlook.cn",
-        imap_port=s.imap_port or 993,
         updated_at=s.updated_at.isoformat() if s.updated_at else None,
     )
 
@@ -242,11 +222,9 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     s.smtp_host = payload.smtp_host
     s.smtp_port = payload.smtp_port
     s.email_address = payload.email_address
-    s.imap_host = payload.imap_host
-    s.imap_port = payload.imap_port
     if payload.password:
         s.encrypted_password = encrypt_password(payload.password)
-    s.updated_at = datetime.now(timezone.utc)
+    s.updated_at = datetime.now(ZoneInfo("Asia/Shanghai"))
     db.commit()
     return {"ok": True}
 
@@ -622,21 +600,6 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         cc=data.cc,
     )
 
-    archive_status = ""
-    imap_host = s.imap_host or "partner.outlook.cn"
-    imap_port = s.imap_port or 993
-    if success and msg_bytes:
-        archived, archive_err = save_to_sent_items(
-            imap_host=imap_host,
-            imap_port=imap_port,
-            email_address=s.email_address,
-            password=smtp_password,
-            msg_bytes=msg_bytes,
-        )
-        archive_status = "archived" if archived else "failed"
-        if not archived:
-            logger.warning("IMAP archive failed: %s", archive_err)
-
     record = EmailHistory(
         email_type=data.email_type,
         recipient=data.recipient,
@@ -645,7 +608,6 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         body=body_md,
         status="success" if success else "failed",
         error_message=error_msg,
-        archive_status=archive_status,
         template_id=data.template_id,
     )
     db.add(record)
@@ -654,7 +616,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=500, detail=error_msg)
 
-    return {"ok": True, "history_id": record.id, "archive_status": archive_status}
+    return {"ok": True, "history_id": record.id}
 
 
 # ── History APIs ───────────────────────────────────────
@@ -692,7 +654,6 @@ def get_history(
                 subject=item.subject or "",
                 status=item.status,
                 error_message=item.error_message or "",
-                archive_status=item.archive_status or "",
                 sent_at=item.sent_at.isoformat() if item.sent_at else "",
             )
             for item in items

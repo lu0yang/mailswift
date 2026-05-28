@@ -269,8 +269,6 @@ const dialog = useDialog();
 
 const SMTP_HOST = "mail.21vianet.com";
 const SMTP_PORT = 587;
-const IMAP_HOST = "partner.outlook.cn";
-const IMAP_PORT = 993;
 
 const refreshAccount = inject("refreshAccount", () => {});
 
@@ -312,8 +310,6 @@ async function handleSave() {
       smtp_port: SMTP_PORT,
       email_address: emailAddress.value,
       password: password.value,
-      imap_host: IMAP_HOST,
-      imap_port: IMAP_PORT,
     });
     message.success(isConfigured.value ? "密码已更新" : "已保存");
     isConfigured.value = true;
