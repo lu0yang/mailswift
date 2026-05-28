@@ -214,13 +214,19 @@
         </div>
         <RichTextEditor v-if="sigMode === 'richtext'" v-model="sigForm.content" />
         <div v-else class="html-paste-wrap">
-          <n-input
-            v-model:value="sigForm.content"
-            type="textarea"
-            :autosize="{ minRows: 6, maxRows: 16 }"
-            placeholder="从 Outlook 复制签名后，在此粘贴 HTML 源代码…"
-            size="large"
-          />
+          <div
+            class="paste-zone"
+            :class="{ 'has-content': sigForm.content }"
+            contenteditable
+            @paste="onSigPaste"
+            tabindex="0"
+          >
+            <div v-if="!sigForm.content" class="paste-placeholder">
+              从 Outlook 复制签名后，在此处 Ctrl+V 粘贴
+            </div>
+            <div v-else class="paste-done">已捕获签名</div>
+          </div>
+          <div class="paste-hint">点击上方区域后按 Ctrl+V 粘贴，工具自动提取 HTML 格式</div>
           <details class="preview-details" style="margin-top:12px">
             <summary class="preview-summary">预览效果</summary>
             <div class="preview-box" v-html="sigForm.content"></div>
@@ -579,6 +585,16 @@ async function loadSignatures() {
   } catch { /* ignore */ }
 }
 
+function onSigPaste(e) {
+  e.preventDefault();
+  const html = e.clipboardData?.getData("text/html");
+  if (html) {
+    sigForm.value.content = html;
+  }
+  // Clear the editable area text so only our status message shows
+  e.target.innerHTML = "";
+}
+
 function openSignatureModal(sig) {
   if (sig) {
     editingSigId.value = sig.id;
@@ -880,6 +896,49 @@ async function handleDeleteSignature(id) {
 
 .html-paste-wrap {
   margin-top: 6px;
+}
+
+.paste-zone {
+  border: 2px dashed #d0d0d0;
+  border-radius: 10px;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: text;
+  transition: border-color 0.2s, background 0.2s;
+  outline: none;
+  padding: 16px;
+}
+
+.paste-zone:focus {
+  border-color: #0071e3;
+  background: #f0f7ff;
+}
+
+.paste-zone.has-content {
+  border-style: solid;
+  border-color: #34c759;
+  background: #e8f8ed;
+}
+
+.paste-placeholder {
+  color: #86868b;
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.paste-done {
+  color: #34c759;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.paste-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #86868b;
 }
 
 /* ── Modal ────────────────────────── */
