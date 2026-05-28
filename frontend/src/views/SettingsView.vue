@@ -140,7 +140,7 @@
           <label class="field-label">类型</label>
           <n-select
             v-model:value="templateForm.type"
-            :options="[{ label: '账号创建', value: 'account' }, { label: '订阅创建', value: 'subscription' }]"
+            :options="[{ label: '账号创建/重置', value: 'account' }, { label: '订阅创建', value: 'subscription' }]"
             size="large"
           />
         </div>

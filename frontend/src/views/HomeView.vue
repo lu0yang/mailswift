@@ -18,7 +18,7 @@
         <div class="type-icon">
           <n-icon size="24"><person-outline /></n-icon>
         </div>
-        <div class="type-label">账号创建</div>
+        <div class="type-label">账号创建/重置</div>
         <div class="type-desc">发送账号和密码信息</div>
       </div>
       <div
