@@ -40,22 +40,27 @@
 </template>
 
 <script setup>
-import { reactive, watch, ref } from "vue";
+import { reactive, watch } from "vue";
 import { NInput, NButton, NIcon } from "naive-ui";
 import { AddOutline, CloseOutline } from "@vicons/ionicons5";
 
 const props = defineProps({ modelValue: Object });
 const emit = defineEmits(["update:modelValue"]);
 
-let keyCounter = ref(0);
+let keyCounter = 0;
 
 const local = reactive({
   subscriptions: (props.modelValue?.subscriptions || []).map((s) => ({
     subscription_id: s.subscription_id || "",
     subscription_name: s.subscription_name || "",
-    _key: ++keyCounter.value,
+    _key: ++keyCounter,
   })),
 });
+
+// Auto-add one empty row on mount if none exist
+if (local.subscriptions.length === 0) {
+  local.subscriptions.push({ subscription_id: "", subscription_name: "", _key: ++keyCounter });
+}
 
 watch(local, (v) => {
   const clean = v.subscriptions.map(({ subscription_id, subscription_name }) => ({
@@ -69,7 +74,7 @@ function addSubscription() {
   local.subscriptions.push({
     subscription_id: "",
     subscription_name: "",
-    _key: ++keyCounter.value,
+    _key: ++keyCounter,
   });
 }
 

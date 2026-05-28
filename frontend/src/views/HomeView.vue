@@ -206,7 +206,17 @@ onActivated(async () => {
 // ── Template rendering ──────────────
 
 function renderTemplateContent(templateContent) {
-  // Substitute variables in the HTML template
+  if (!templateContent) return "";
+
+  // Try new JSON format: {"header": "...", "item": "...", "footer": "..."}
+  try {
+    const tpl = JSON.parse(templateContent);
+    if (tpl && typeof tpl === "object" && "item" in tpl) {
+      return renderNewFormat(tpl);
+    }
+  } catch { /* legacy format */ }
+
+  // Legacy format: {account_list} / {subscription_list} markers in HTML
   let html = templateContent;
   if (emailType.value === "account") {
     const accounts = formData.value.accounts || [];
@@ -221,8 +231,78 @@ function renderTemplateContent(templateContent) {
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`);
     html = html.replace("{subscription_list}", lines.join("<br>") || "（无）");
   }
-  // Convert HTML template to Markdown for the body textarea
   return turndown.turndown(html);
+}
+
+function renderNewFormat(tpl) {
+  let header = tpl.header || "";
+  const itemTpl = tpl.item || "";
+  const footer = tpl.footer || "";
+
+  if (emailType.value === "account") {
+    const accounts = formData.value.accounts || [];
+    const count = accounts.filter((a) => a.account || a.password || a.account_type).length;
+    header = header.replaceAll("{account_plural}", count === 1 ? "account" : "accounts");
+
+    const items = accounts
+      .filter((a) => a.account || a.password || a.account_type)
+      .map((a) => {
+        let part = itemTpl;
+        part = part.replaceAll("{username}", a.account || "");
+        part = part.replaceAll("{password}", a.password || "");
+        part = part.replaceAll("{account_type}", a.account_type || "");
+        return part;
+      });
+
+    const parts = [header, ...items, footer].filter((p) => p.trim());
+    // Convert HTML (from rich text editor) to Markdown for the textarea
+    return turndown.turndown(parts.join("\n\n"));
+  } else {
+    const subs = formData.value.subscriptions || [];
+    const count = subs.filter((s) => s.subscription_id || s.subscription_name).length;
+    header = header.replaceAll("{subscription_plural}", count === 1 ? "subscription" : "subscriptions");
+
+    const items = subs
+      .filter((s) => s.subscription_id || s.subscription_name)
+      .map((s) => {
+        let part = itemTpl;
+        part = part.replaceAll("{subscription_id}", s.subscription_id || "");
+        part = part.replaceAll("{subscription_name}", s.subscription_name || "");
+        return part;
+      });
+
+    const parts = [header, ...items, footer].filter((p) => p.trim());
+    return turndown.turndown(parts.join("\n\n"));
+  }
+}
+
+// Substitute new-format markers in plain text (no-template fallback)
+function substitutePlainMarkers(text) {
+  if (emailType.value === "account") {
+    const accounts = (formData.value.accounts || []).filter((a) => a.account || a.password || a.account_type);
+    text = text.replaceAll("{account_plural}", accounts.length === 1 ? "account" : "accounts");
+    text = text.replace("{account_list}", accounts
+      .map((a, i) => `${i + 1}. ${a.account} / ${a.password} / ${a.account_type}`)
+      .join("  \n") || "（无）");
+    // Per-item markers: only makes sense for single-account manual typing.
+    // For multiple, just show the first — the backend will render properly.
+    if (accounts.length >= 1) {
+      text = text.replaceAll("{username}", accounts[0].account || "");
+      text = text.replaceAll("{password}", accounts[0].password || "");
+      text = text.replaceAll("{account_type}", accounts[0].account_type || "");
+    }
+  } else {
+    const subs = (formData.value.subscriptions || []).filter((s) => s.subscription_id || s.subscription_name);
+    text = text.replaceAll("{subscription_plural}", subs.length === 1 ? "subscription" : "subscriptions");
+    text = text.replace("{subscription_list}", subs
+      .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`)
+      .join("  \n") || "（无）");
+    if (subs.length >= 1) {
+      text = text.replaceAll("{subscription_id}", subs[0].subscription_id || "");
+      text = text.replaceAll("{subscription_name}", subs[0].subscription_name || "");
+    }
+  }
+  return text;
 }
 
 // ── Event handlers ──────────────────
@@ -285,10 +365,16 @@ watch([formData, emailType], () => {
   }
   // No template selected — auto-detect manually typed variables in the body.
   // This path always runs; userEditedBody doesn't block it because the user
-  // explicitly typed {account_list} / {subscription_list} and expects sync.
-  if (body.value && (body.value.includes("{account_list}") || body.value.includes("{subscription_list}"))) {
+  // explicitly typed variables and expects sync.
+  const markers = [
+    "{account_list}", "{subscription_list}",
+    "{account_plural}", "{subscription_plural}",
+    "{username}", "{password}", "{account_type}",
+    "{subscription_id}", "{subscription_name}",
+  ];
+  if (body.value && markers.some((m) => body.value.includes(m))) {
     bodySource.value = body.value;
-    body.value = renderTemplateContent(bodySource.value);
+    body.value = substitutePlainMarkers(bodySource.value);
   }
 }, { deep: true });
 

@@ -1,5 +1,6 @@
 <template>
   <n-config-provider :theme-overrides="themeOverrides" :locale="zhCN" :date-locale="dateZhCN">
+    <n-dialog-provider>
     <n-message-provider>
       <div class="app-shell">
         <header class="app-header">
@@ -7,6 +8,10 @@
             <span class="logo" @click="$router.push('/')">MailSwift</span>
           </div>
           <div class="header-right">
+            <div class="account-status" @click="$router.push('/settings')">
+              <span class="status-dot" :class="accountClass"></span>
+              <span class="status-text">{{ accountLabel }}</span>
+            </div>
             <n-button text @click="$router.push('/settings')">
               <template #icon><n-icon><settings-outline /></n-icon></template>
             </n-button>
@@ -24,13 +29,59 @@
         </main>
       </div>
     </n-message-provider>
+    </n-dialog-provider>
   </n-config-provider>
 </template>
 
 <script setup>
-import { NConfigProvider, NMessageProvider, NButton, NIcon } from "naive-ui";
+import { ref, computed, provide, onMounted } from "vue";
+import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NIcon } from "naive-ui";
 import { SettingsOutline, ListOutline } from "@vicons/ionicons5";
 import { zhCN, dateZhCN } from "naive-ui";
+import { getSettings, testSmtp } from "@/api";
+
+const accountEmail = ref("");
+const accountExpired = ref(false);
+
+const accountClass = computed(() => {
+  if (!accountEmail.value) return "none";
+  if (accountExpired.value) return "expired";
+  return "ok";
+});
+
+const accountLabel = computed(() => {
+  if (!accountEmail.value) return "未登录";
+  if (accountExpired.value) return "凭据已过期";
+  return accountEmail.value;
+});
+
+async function refreshAccount() {
+  try {
+    const { data } = await getSettings();
+    if (data.email_address && data.password_masked) {
+      accountEmail.value = data.email_address;
+      // silently verify credentials are still valid
+      try {
+        await testSmtp();
+        accountExpired.value = false;
+      } catch {
+        accountExpired.value = true;
+      }
+    } else {
+      accountEmail.value = "";
+      accountExpired.value = false;
+    }
+  } catch {
+    accountEmail.value = "";
+    accountExpired.value = false;
+  }
+}
+
+provide("refreshAccount", refreshAccount);
+
+onMounted(() => {
+  refreshAccount();
+});
 
 const themeOverrides = {
   common: {
@@ -98,8 +149,46 @@ body {
 
 .header-right {
   display: flex;
+  align-items: center;
   gap: 4px;
   -webkit-app-region: no-drag;
+}
+
+.account-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  background: #f5f5f7;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-right: 4px;
+}
+
+.account-status:hover {
+  background: #e8e8ed;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.none { background: #a1a1a6; }
+.status-dot.ok { background: #34c759; }
+.status-dot.expired { background: #ff3b30; }
+
+.status-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1d1d1f;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-main {

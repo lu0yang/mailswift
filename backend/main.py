@@ -19,7 +19,7 @@ from .models import (
     DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
 )
 from .crypto_utils import encrypt_password, decrypt_password
-from .mail_sender import send_email
+from .mail_sender import send_email, verify_smtp_connection
 from .imap_saver import save_to_sent_items
 
 if getattr(sys, 'frozen', False):
@@ -257,11 +257,11 @@ class TestSmtpRequest(BaseModel):
 
 
 @app.post("/api/settings/test-smtp")
-def test_smtp(data: TestSmtpRequest = TestSmtpRequest(), db: Session = Depends(get_db)):
+def test_smtp(data: TestSmtpRequest | None = None, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
 
     # Use request body params if provided, otherwise fall back to saved settings
-    if data.email_address and data.password:
+    if data and data.email_address and data.password:
         host = data.smtp_host or "mail.21vianet.com"
         port = data.smtp_port or 587
         addr = data.email_address
@@ -270,20 +270,14 @@ def test_smtp(data: TestSmtpRequest = TestSmtpRequest(), db: Session = Depends(g
         host = s.smtp_host
         port = s.smtp_port
         addr = s.email_address
-        pwd = decrypt_password(s.encrypted_password)
+        try:
+            pwd = decrypt_password(s.encrypted_password)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="密码解密失败，请重新配置 SMTP 凭据")
     else:
         raise HTTPException(status_code=400, detail="请先填写邮箱地址和密码")
 
-    success, error_msg, _ = send_email(
-        smtp_host=host,
-        smtp_port=port,
-        email_address=addr,
-        password=pwd,
-        recipient=addr,
-        subject="MailSwift 连接测试",
-        body_html="<p>这是一封测试邮件，用于验证 SMTP 配置是否正确。</p>",
-        body_plain="这是一封测试邮件，用于验证 SMTP 配置是否正确。",
-    )
+    success, error_msg = verify_smtp_connection(host, port, addr, pwd)
     if not success:
         raise HTTPException(status_code=400, detail=error_msg)
     return {"ok": True}
@@ -425,12 +419,110 @@ def render_subscription_list(subs: list[SubscriptionItem]) -> str:
 
 
 def render_body(template_content: str, data: SendEmailRequest) -> str:
-    """Substitute template variables into the markdown body."""
+    """Substitute template variables into the body."""
+
+    # Try new JSON format: {"header": "...", "item": "...", "footer": "..."}
+    import json as _json
+    try:
+        tpl = _json.loads(template_content)
+        if isinstance(tpl, dict) and "item" in tpl:
+            return _render_new_format(tpl, data)
+    except (_json.JSONDecodeError, TypeError):
+        pass
+
+    # Legacy / plain-text format: handle markers directly
+    return _render_plain_markers(template_content, data)
+
+
+def _render_new_format(tpl: dict, data: SendEmailRequest) -> str:
+    """Render the new three-section JSON template format."""
+    header = tpl.get("header", "")
+    item_tpl = tpl.get("item", "")
+    footer = tpl.get("footer", "")
+
     if data.email_type == "account":
-        body = template_content.replace("{account_list}", render_account_list(data.accounts))
+        count = len(data.accounts)
+        plural_val = "account" if count == 1 else "accounts"
+        header = header.replace("{account_plural}", plural_val)
+        header = header.replace("{subscription_plural}", "subscription")
+
+        items = []
+        for acct in data.accounts:
+            part = item_tpl.replace("{username}", acct.account)
+            part = part.replace("{password}", acct.password)
+            part = part.replace("{account_type}", acct.account_type)
+            items.append(part)
     else:
-        body = template_content.replace("{subscription_list}", render_subscription_list(data.subscriptions))
-    return body
+        count = len(data.subscriptions)
+        plural_val = "subscription" if count == 1 else "subscriptions"
+        header = header.replace("{subscription_plural}", plural_val)
+        header = header.replace("{account_plural}", "account")
+
+        items = []
+        for sub in data.subscriptions:
+            part = item_tpl.replace("{subscription_id}", sub.subscription_id)
+            part = part.replace("{subscription_name}", sub.subscription_name)
+            items.append(part)
+
+    # Filter empty strings before joining to avoid double line breaks
+    parts = [p for p in [header, *items, footer] if p.strip()]
+    return "\n\n".join(parts)
+
+
+def _render_plain_markers(text: str, data: SendEmailRequest) -> str:
+    """Substitute new-format markers in non-JSON body text."""
+    if data.email_type == "account":
+        count = len(data.accounts)
+        text = text.replace("{account_plural}", "account" if count == 1 else "accounts")
+        text = text.replace("{account_list}", render_account_list(data.accounts))
+        # Per-item markers: build a simple list for multi-account; single replacement for one
+        if count == 1:
+            a = data.accounts[0]
+            text = text.replace("{username}", a.account)
+            text = text.replace("{password}", a.password)
+            text = text.replace("{account_type}", a.account_type)
+        else:
+            items = []
+            for a in data.accounts:
+                items.append(f"{a.account} / {a.password} / {a.account_type}")
+            text = text.replace("{username}", "\n".join(items))
+            text = text.replace("{password}", "\n".join(items))
+            text = text.replace("{account_type}", "\n".join(items))
+    else:
+        count = len(data.subscriptions)
+        text = text.replace("{subscription_plural}", "subscription" if count == 1 else "subscriptions")
+        text = text.replace("{subscription_list}", render_subscription_list(data.subscriptions))
+        if count == 1:
+            s = data.subscriptions[0]
+            text = text.replace("{subscription_id}", s.subscription_id)
+            text = text.replace("{subscription_name}", s.subscription_name)
+        else:
+            items = []
+            for s in data.subscriptions:
+                items.append(f"{s.subscription_id} - {s.subscription_name}")
+            text = text.replace("{subscription_id}", "\n".join(items))
+            text = text.replace("{subscription_name}", "\n".join(items))
+    return text
+
+
+def _strip_markdown(md: str) -> str:
+    """Strip common Markdown formatting for the plain-text email alternative."""
+    import re
+    # Remove link syntax: [text](url) → text
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", md)
+    # Remove image syntax: ![alt](url) → alt
+    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    # Remove bold/italic markers
+    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
+    # Remove inline code
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    # Remove heading markers
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    # Remove list markers
+    text = re.sub(r"^[\s]*[-*+]\s+", "  ", text, flags=re.MULTILINE)
+    # Collapse multiple blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 # ── Send Email API ──────────────────────────────────────
@@ -450,9 +542,15 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if data.email_type == "subscription" and not data.subscriptions:
         raise HTTPException(status_code=400, detail="请至少添加一条订阅")
 
+    # Server-side fallback: substitute any remaining {account_list}/{subscription_list}
+    # placeholders in case the frontend didn't already do it.
+    body_md = render_body(body_md, data)
+
     # Convert markdown → HTML
     body_html = markdown.markdown(body_md, output_format="html")
-    body_plain = body_md
+
+    # Plain text version: strip common markdown formatting for readability
+    body_plain = _strip_markdown(body_md)
 
     # Append signature HTML if selected
     if data.signature_id:
@@ -460,7 +558,10 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         if sig and sig.content:
             body_html += "\n<hr>\n" + sig.content
 
-    smtp_password = decrypt_password(s.encrypted_password)
+    try:
+        smtp_password = decrypt_password(s.encrypted_password)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="密码解密失败，请重新配置 SMTP 凭据")
     success, error_msg, msg_bytes = send_email(
         smtp_host=s.smtp_host,
         smtp_port=s.smtp_port,

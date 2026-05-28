@@ -8,62 +8,59 @@
     <div class="page-title">设置</div>
 
     <n-tabs type="line" animated>
-      <!-- SMTP Tab -->
-      <n-tab-pane name="smtp" tab="SMTP 配置">
+      <!-- Account Tab -->
+      <n-tab-pane name="account" tab="账户">
         <div class="settings-card">
-          <div class="form-row">
-            <div class="form-col host-col">
-              <label class="field-label">SMTP 服务器</label>
-              <n-input v-model:value="smtpHost" size="large" clearable />
+          <!-- State B: already configured -->
+          <template v-if="isConfigured">
+            <div class="configured-banner">
+              <span class="configured-dot"></span>
+              已登录 {{ emailAddress }}
             </div>
-            <div class="form-col port-col">
-              <label class="field-label">端口</label>
-              <n-input-number v-model:value="smtpPort" :min="1" :max="65535" size="large" />
+            <div v-if="!showPasswordUpdate" class="update-link" @click="showPasswordUpdate = true">
+              更新密码
             </div>
-          </div>
-          <div class="form-field">
-            <label class="field-label">邮箱地址</label>
-            <n-input v-model:value="emailAddress" placeholder="yourname@company.com" size="large" clearable />
-          </div>
-          <div class="form-field">
-            <label class="field-label">密码 / 应用专用密码</label>
-            <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入密码" size="large" />
-          </div>
-          <div class="btn-row">
-            <n-button size="large" :loading="testing" @click="handleTest">
-              测试连接
-            </n-button>
-            <n-button type="primary" size="large" :loading="saving" :disabled="!smtpTested" @click="handleSave">
-              保存凭据
-            </n-button>
-          </div>
-          <div v-if="!smtpTested && (emailAddress || password)" class="test-hint">
-            请先通过连接测试，成功后方可保存凭据
-          </div>
-          <div v-if="statusText" class="status-bar">
-            <span class="status-dot" :class="statusType"></span>
-            {{ statusText }}
-          </div>
-        </div>
-      </n-tab-pane>
+            <template v-if="showPasswordUpdate">
+              <div class="form-field">
+                <label class="field-label">新密码</label>
+                <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入新密码" size="large" />
+              </div>
+              <div class="btn-row">
+                <n-button size="large" :loading="testing" @click="handleTest">
+                  测试新密码
+                </n-button>
+                <n-button type="primary" size="large" :loading="saving" :disabled="!connectionTested" @click="handleSave">
+                  保存新密码
+                </n-button>
+              </div>
+              <div v-if="!connectionTested && password" class="test-hint">
+                请先通过连接测试，成功后方可保存
+              </div>
+            </template>
+          </template>
 
-      <!-- IMAP Tab -->
-      <n-tab-pane name="imap" tab="IMAP 配置">
-        <div class="settings-card">
-          <p class="tab-desc">用于在发送邮件后将副本存入"已发送邮件"文件夹。</p>
-          <div class="form-row">
-            <div class="form-col host-col">
-              <label class="field-label">IMAP 服务器</label>
-              <n-input v-model:value="imapHost" size="large" clearable />
+          <!-- State A: not yet configured -->
+          <template v-else>
+            <div class="form-field">
+              <label class="field-label">邮箱地址</label>
+              <n-input v-model:value="emailAddress" placeholder="yourname@company.com" size="large" clearable />
             </div>
-            <div class="form-col port-col">
-              <label class="field-label">端口</label>
-              <n-input-number v-model:value="imapPort" :min="1" :max="65535" size="large" />
+            <div class="form-field">
+              <label class="field-label">密码 / 应用专用密码</label>
+              <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入密码" size="large" />
             </div>
-          </div>
-          <n-button type="primary" size="large" :loading="saving" @click="handleSave">
-            保存 IMAP 配置
-          </n-button>
+            <div class="btn-row">
+              <n-button size="large" :loading="testing" @click="handleTest">
+                测试连接
+              </n-button>
+              <n-button type="primary" size="large" :loading="saving" :disabled="!connectionTested" @click="handleSave">
+                保存并登录
+              </n-button>
+            </div>
+            <div v-if="!connectionTested && (emailAddress || password)" class="test-hint">
+              请先通过连接测试，成功后方可保存凭据
+            </div>
+          </template>
         </div>
       </n-tab-pane>
 
@@ -99,7 +96,7 @@
                 <n-button text size="tiny" type="error" @click="handleDeleteTemplate(t.id)">删除</n-button>
               </div>
             </div>
-            <div class="list-card-preview">{{ t.content.slice(0, 100) }}{{ t.content.length > 100 ? '…' : '' }}</div>
+            <div class="list-card-preview">{{ previewText(t) }}</div>
           </div>
         </div>
       </n-tab-pane>
@@ -133,30 +130,51 @@
     </n-tabs>
 
     <!-- Template Edit Modal -->
-    <n-modal v-model:show="templateModalVisible" preset="card" title="模板" style="max-width:720px">
-      <div class="modal-field">
-        <label class="field-label">模板名称</label>
-        <n-input v-model:value="templateForm.name" placeholder="例如：正式账号通知" size="large" />
+    <n-modal v-model:show="templateModalVisible" preset="card" title="编辑模板" style="max-width:800px">
+      <div class="form-row-2col">
+        <div class="form-col">
+          <label class="field-label">模板名称</label>
+          <n-input v-model:value="templateForm.name" placeholder="例如：正式账号通知" size="large" />
+        </div>
+        <div class="form-col">
+          <label class="field-label">类型</label>
+          <n-select
+            v-model:value="templateForm.type"
+            :options="[{ label: '账号创建', value: 'account' }, { label: '订阅创建', value: 'subscription' }]"
+            size="large"
+          />
+        </div>
       </div>
-      <div class="modal-field">
-        <label class="field-label">类型</label>
-        <n-select
-          v-model:value="templateForm.type"
-          :options="[{ label: '账号创建', value: 'account' }, { label: '订阅创建', value: 'subscription' }]"
-          size="large"
-        />
-      </div>
-      <div class="modal-field">
-        <label class="field-label">
-          正文内容
-          <span class="field-hint">
-            — 变量：
-            <code v-if="templateForm.type === 'account'">{account_list}</code>
-            <code v-else>{subscription_list}</code>
-          </span>
+
+      <div class="modal-section">
+        <label class="section-label">
+          <span class="section-num">1</span> 开头文字
+          <span class="section-hint">— 所有账号前，出现一次</span>
         </label>
-        <RichTextEditor v-model="templateForm.content" />
+        <RichTextEditor v-model="templateForm.header" :variables="headerVariables" />
       </div>
+
+      <div class="modal-section">
+        <label class="section-label">
+          <span class="section-num">2</span> 每条账号格式
+          <span class="section-hint">— 有几条账号就重复几次</span>
+        </label>
+        <RichTextEditor v-model="templateForm.item" :variables="itemVariables" />
+      </div>
+
+      <div class="modal-section">
+        <label class="section-label">
+          <span class="section-num">3</span> 结尾文字
+          <span class="section-hint">— 所有账号后，出现一次</span>
+        </label>
+        <RichTextEditor v-model="templateForm.footer" :variables="[]" />
+      </div>
+
+      <details class="preview-details">
+        <summary class="preview-summary">预览效果</summary>
+        <div class="preview-box" v-html="templatePreview"></div>
+      </details>
+
       <template #footer>
         <div class="modal-footer">
           <n-button @click="templateModalVisible = false">取消</n-button>
@@ -189,10 +207,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, inject } from "vue";
 import {
-  NInput, NInputNumber, NSelect, NButton, NIcon, NTabs, NTabPane,
-  NModal, NCheckbox, useMessage,
+  NInput, NSelect, NButton, NIcon, NTabs, NTabPane,
+  NModal, NCheckbox, useMessage, useDialog,
 } from "naive-ui";
 import { ArrowBackOutline, AddOutline } from "@vicons/ionicons5";
 import RichTextEditor from "@/components/RichTextEditor.vue";
@@ -203,63 +221,64 @@ import {
 } from "@/api";
 
 const message = useMessage();
+const dialog = useDialog();
 
-// ── SMTP / IMAP ──────────────────────
+// ── Account ──────────────────────────
 
-const smtpHost = ref("mail.21vianet.com");
-const smtpPort = ref(587);
+const SMTP_HOST = "mail.21vianet.com";
+const SMTP_PORT = 587;
+const IMAP_HOST = "partner.outlook.cn";
+const IMAP_PORT = 993;
+
+const refreshAccount = inject("refreshAccount", () => {});
+
 const emailAddress = ref("");
 const password = ref("");
-const imapHost = ref("partner.outlook.cn");
-const imapPort = ref(993);
 const saving = ref(false);
 const testing = ref(false);
-const smtpTested = ref(false);
-const statusText = ref("");
-const statusType = ref("");
+const connectionTested = ref(false);
+const isConfigured = ref(false);
+const showPasswordUpdate = ref(false);
 
 onMounted(async () => {
   try {
     const { data } = await getSettings();
-    smtpHost.value = data.smtp_host || "mail.21vianet.com";
-    smtpPort.value = data.smtp_port || 587;
-    emailAddress.value = data.email_address;
-    imapHost.value = data.imap_host || "partner.outlook.cn";
-    imapPort.value = data.imap_port || 993;
+    emailAddress.value = data.email_address || "";
     if (data.password_masked) {
-      statusText.value = `已配置  |  上次更新：${data.updated_at?.slice(0, 10) || "-"}`;
-      statusType.value = "success";
-      smtpTested.value = true;
+      isConfigured.value = true;
+      connectionTested.value = true;
     }
   } catch { /* not yet configured */ }
   await loadTemplates();
   await loadSignatures();
 });
 
-// Reset test state when SMTP fields change
-watch([smtpHost, smtpPort, emailAddress, password], () => {
-  smtpTested.value = false;
+// Reset test state when password changes
+watch(password, () => {
+  connectionTested.value = false;
 });
 
 async function handleSave() {
-  if (!smtpTested.value) {
+  if (!connectionTested.value) {
     message.warning("请先通过连接测试再保存");
     return;
   }
   saving.value = true;
   try {
     await updateSettings({
-      smtp_host: smtpHost.value,
-      smtp_port: smtpPort.value,
+      smtp_host: SMTP_HOST,
+      smtp_port: SMTP_PORT,
       email_address: emailAddress.value,
       password: password.value,
-      imap_host: imapHost.value,
-      imap_port: imapPort.value,
+      imap_host: IMAP_HOST,
+      imap_port: IMAP_PORT,
     });
-    message.success("已保存");
-    statusText.value = "已配置";
-    statusType.value = "success";
+    message.success(isConfigured.value ? "密码已更新" : "已保存");
+    isConfigured.value = true;
+    showPasswordUpdate.value = false;
     password.value = "";
+    connectionTested.value = false;
+    refreshAccount();
   } catch (err) {
     message.error(err.response?.data?.detail || "保存失败");
   } finally {
@@ -275,15 +294,15 @@ async function handleTest() {
   testing.value = true;
   try {
     await testSmtp({
-      smtp_host: smtpHost.value,
-      smtp_port: smtpPort.value,
+      smtp_host: SMTP_HOST,
+      smtp_port: SMTP_PORT,
       email_address: emailAddress.value,
       password: password.value,
     });
-    smtpTested.value = true;
+    connectionTested.value = true;
     message.success("连接测试成功");
   } catch (err) {
-    smtpTested.value = false;
+    connectionTested.value = false;
     message.error(err.response?.data?.detail || "连接测试失败");
   } finally {
     testing.value = false;
@@ -308,7 +327,91 @@ const filteredTemplates = computed(() => {
 const templateModalVisible = ref(false);
 const templateSaving = ref(false);
 const editingTemplateId = ref(null);
-const templateForm = ref({ name: "", type: "account", content: "" });
+const templateForm = ref({ name: "", type: "account", header: "", item: "", footer: "" });
+
+const accountVars = [
+  { label: "account/accounts", marker: "{account_plural}" },
+  { label: "用户名", marker: "{username}" },
+  { label: "密码", marker: "{password}" },
+  { label: "账户类型", marker: "{account_type}" },
+];
+
+const subscriptionVars = [
+  { label: "subscription/subscriptions", marker: "{subscription_plural}" },
+  { label: "订阅 ID", marker: "{subscription_id}" },
+  { label: "订阅名称", marker: "{subscription_name}" },
+];
+
+const headerVariables = computed(() => {
+  if (templateForm.value.type === "account") return [accountVars[0]];
+  return [subscriptionVars[0]];
+});
+
+const itemVariables = computed(() => {
+  if (templateForm.value.type === "account") return accountVars.slice(1);
+  return subscriptionVars.slice(1);
+});
+
+const templatePreview = computed(() => {
+  const t = templateForm.value;
+  if (!t.header && !t.item && !t.footer) return "<p style='color:#86868b'>填写内容后预览</p>";
+
+  const sampleData = t.type === "account"
+    ? [
+        { username: "zhangsan", password: "Abc12345", account_type: "正式账号" },
+        { username: "lisi", password: "Xyz67890", account_type: "测试账号" },
+      ]
+    : [
+        { subscription_id: "SUB-001", subscription_name: "基础版" },
+        { subscription_id: "SUB-002", subscription_name: "高级版" },
+      ];
+
+  const pluralMap = {
+    account_plural: sampleData.length === 1 ? "account" : "accounts",
+    subscription_plural: sampleData.length === 1 ? "subscription" : "subscriptions",
+  };
+
+  let header = t.header;
+  for (const [k, v] of Object.entries(pluralMap)) {
+    header = header.replaceAll(`{${k}}`, v);
+  }
+
+  const items = sampleData.map((d) => {
+    let part = t.item;
+    for (const [k, v] of Object.entries(d)) {
+      part = part.replaceAll(`{${k}}`, v);
+    }
+    return part;
+  });
+
+  return header + items.join("\n") + t.footer;
+});
+
+function parseTemplateContent(content) {
+  if (!content) return { header: "", item: "", footer: "" };
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object" && "item" in parsed) {
+      return {
+        header: parsed.header || "",
+        item: parsed.item || "",
+        footer: parsed.footer || "",
+      };
+    }
+  } catch { /* legacy format */ }
+  return { header: "", item: content, footer: "" };
+}
+
+function serialiseTemplateContent(header, item, footer) {
+  return JSON.stringify({ header: header || "", item: item || "", footer: footer || "" });
+}
+
+function previewText(tpl) {
+  const parsed = parseTemplateContent(tpl.content);
+  const text = [parsed.header, parsed.item, parsed.footer].filter(Boolean).join(" ");
+  const stripped = text.replace(/<[^>]+>/g, "").trim();
+  return stripped.slice(0, 80) + (stripped.length > 80 ? "…" : "");
+}
 
 async function loadTemplates() {
   try {
@@ -320,14 +423,17 @@ async function loadTemplates() {
 function openTemplateModal(template) {
   if (template) {
     editingTemplateId.value = template.id;
+    const parsed = parseTemplateContent(template.content);
     templateForm.value = {
       name: template.name,
       type: template.type,
-      content: template.content,
+      header: parsed.header,
+      item: parsed.item,
+      footer: parsed.footer,
     };
   } else {
     editingTemplateId.value = null;
-    templateForm.value = { name: "", type: "account", content: "" };
+    templateForm.value = { name: "", type: "account", header: "", item: "", footer: "" };
   }
   templateModalVisible.value = true;
 }
@@ -337,12 +443,25 @@ async function handleSaveTemplate() {
     message.warning("请输入模板名称");
     return;
   }
+  if (!templateForm.value.item) {
+    message.warning("请填写至少每条账号格式");
+    return;
+  }
   templateSaving.value = true;
   try {
+    const payload = {
+      name: templateForm.value.name,
+      type: templateForm.value.type,
+      content: serialiseTemplateContent(
+        templateForm.value.header,
+        templateForm.value.item,
+        templateForm.value.footer
+      ),
+    };
     if (editingTemplateId.value) {
-      await updateTemplate(editingTemplateId.value, templateForm.value);
+      await updateTemplate(editingTemplateId.value, payload);
     } else {
-      await createTemplate(templateForm.value);
+      await createTemplate(payload);
     }
     message.success("模板已保存");
     templateModalVisible.value = false;
@@ -355,13 +474,21 @@ async function handleSaveTemplate() {
 }
 
 async function handleDeleteTemplate(id) {
-  try {
-    await deleteTemplate(id);
-    message.success("模板已删除");
-    await loadTemplates();
-  } catch {
-    message.error("删除失败");
-  }
+  dialog.warning({
+    title: "确认删除",
+    content: "确定要删除这个模板吗？此操作不可撤销。",
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        await deleteTemplate(id);
+        message.success("模板已删除");
+        await loadTemplates();
+      } catch {
+        message.error("删除失败");
+      }
+    },
+  });
 }
 
 // ── Signatures ────────────────────────
@@ -413,13 +540,21 @@ async function handleSaveSignature() {
 }
 
 async function handleDeleteSignature(id) {
-  try {
-    await deleteSignature(id);
-    message.success("签名已删除");
-    await loadSignatures();
-  } catch {
-    message.error("删除失败");
-  }
+  dialog.warning({
+    title: "确认删除",
+    content: "确定要删除这个签名吗？此操作不可撤销。",
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        await deleteSignature(id);
+        message.success("签名已删除");
+        await loadSignatures();
+      } catch {
+        message.error("删除失败");
+      }
+    },
+  });
 }
 </script>
 
@@ -448,21 +583,6 @@ async function handleDeleteSignature(id) {
   padding: 32px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
-
-.tab-desc {
-  font-size: 13px;
-  color: #86868b;
-  margin-bottom: 16px;
-}
-
-.form-row {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.form-col.host-col { flex: 3; }
-.form-col.port-col { flex: 1; }
 
 .form-field { margin-bottom: 18px; }
 
@@ -493,24 +613,37 @@ async function handleDeleteSignature(id) {
   gap: 10px;
 }
 
-.status-bar {
-  margin-top: 16px;
-  font-size: 13px;
-  color: #86868b;
+.configured-banner {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #e8f8ed;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #1d1d1f;
+  margin-bottom: 20px;
 }
 
-.status-dot {
+.configured-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #e0e0e0;
+  background: #34c759;
+  flex-shrink: 0;
 }
 
-.status-dot.success { background: #34c759; }
+.update-link {
+  font-size: 14px;
+  color: #0071e3;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.update-link:hover {
+  color: #0077ed;
+  text-decoration: underline;
+}
 
 .test-hint {
   margin-top: 12px;
@@ -621,6 +754,79 @@ async function handleDeleteSignature(id) {
 }
 
 /* ── Modal ────────────────────────── */
+
+.form-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.modal-section {
+  margin-bottom: 18px;
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+  margin-bottom: 6px;
+}
+
+.section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0071e3;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.section-hint {
+  font-size: 12px;
+  color: #86868b;
+  font-weight: 400;
+}
+
+.preview-details {
+  margin-top: 16px;
+}
+
+.preview-summary {
+  font-size: 13px;
+  color: #0071e3;
+  cursor: pointer;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.preview-box {
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1d1d1f;
+  background: #fafafa;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.preview-box :deep(p) {
+  margin: 0 0 6px;
+}
+
+.preview-box :deep(a) {
+  color: #0071e3;
+}
 
 .modal-field {
   margin-bottom: 16px;

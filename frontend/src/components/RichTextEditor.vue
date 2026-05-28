@@ -1,5 +1,15 @@
 <template>
   <div class="rte" :class="{ 'rte--focused': editor?.isFocused }">
+    <div v-if="variables && variables.length" class="rte-pills">
+      <button
+        v-for="v in variables"
+        :key="v.marker"
+        class="rte-pill"
+        @click="insertVariable(v.marker)"
+      >
+        {{ v.label }}
+      </button>
+    </div>
     <div class="rte-toolbar">
       <button
         class="rte-btn"
@@ -24,7 +34,7 @@
         title="无序列表"
         @click="editor?.chain().focus().toggleBulletList().run()"
       >
-        •≡
+        &bull;&equiv;
       </button>
       <button
         class="rte-btn"
@@ -41,7 +51,7 @@
         title="插入/编辑链接"
         @click="toggleLink"
       >
-        🔗
+        &#128279;
       </button>
     </div>
     <editor-content :editor="editor" class="rte-content" />
@@ -49,18 +59,21 @@
 </template>
 
 <script setup>
-import { ref, watch, onBeforeUnmount, nextTick } from "vue";
+import { ref, watch, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 
 const props = defineProps({
   modelValue: { type: String, default: "" },
+  variables: {
+    type: Array,
+    default: () => [],
+  },
 });
 const emit = defineEmits(["update:modelValue"]);
 
 const initialValue = ref(props.modelValue);
-const linkUrl = ref("");
 
 const editor = useEditor({
   content: initialValue.value,
@@ -81,7 +94,6 @@ const editor = useEditor({
   },
 });
 
-// Sync external modelValue changes back into the editor (e.g. template switching)
 watch(
   () => props.modelValue,
   (val) => {
@@ -91,7 +103,10 @@ watch(
   }
 );
 
-// Basic link toggle: prompt-based for simplicity
+function insertVariable(marker) {
+  editor.value?.chain().focus().insertContent(marker).run();
+}
+
 function toggleLink() {
   const ed = editor.value;
   if (!ed) return;
@@ -124,6 +139,32 @@ onBeforeUnmount(() => {
 .rte--focused {
   border-color: #0071e3;
   box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15);
+}
+
+.rte-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #fafafa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.rte-pill {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 12px;
+  background: #e8f2ff;
+  color: #0071e3;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.rte-pill:hover {
+  background: #0071e3;
+  color: #fff;
 }
 
 .rte-toolbar {
@@ -168,7 +209,7 @@ onBeforeUnmount(() => {
 
 .rte-content {
   padding: 12px 14px;
-  min-height: 120px;
+  min-height: 100px;
   font-size: 14px;
   line-height: 1.7;
   color: #1d1d1f;

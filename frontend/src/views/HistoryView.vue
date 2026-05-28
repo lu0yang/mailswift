@@ -65,7 +65,8 @@
         </div>
       </div>
 
-      <div v-if="items.length === 0 && !loading" class="empty">
+      <div v-if="loading" class="loading-hint">加载中…</div>
+      <div v-else-if="items.length === 0" class="empty">
         暂无记录
       </div>
     </div>
@@ -95,11 +96,12 @@
 
 <script setup>
 import { ref, onMounted, onActivated } from "vue";
-import { NButton, NIcon, useMessage } from "naive-ui";
+import { NButton, NIcon, useMessage, useDialog } from "naive-ui";
 import { ArrowBackOutline } from "@vicons/ionicons5";
 import { getHistory, deleteHistory } from "@/api";
 
 const message = useMessage();
+const dialog = useDialog();
 const filter = ref("");
 const items = ref([]);
 const page = ref(1);
@@ -137,13 +139,21 @@ function toggleExpand(id) {
 }
 
 async function handleDelete(id) {
-  try {
-    await deleteHistory(id);
-    message.success("已删除");
-    fetchHistory();
-  } catch {
-    message.error("删除失败");
-  }
+  dialog.warning({
+    title: "确认删除",
+    content: "确定要删除这条发送记录吗？此操作不可撤销。",
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        await deleteHistory(id);
+        message.success("已删除");
+        fetchHistory();
+      } catch {
+        message.error("删除失败");
+      }
+    },
+  });
 }
 
 function formatTime(iso) {
@@ -320,6 +330,13 @@ function formatTime(iso) {
   font-weight: 500;
   color: #86868b;
   min-width: 56px;
+}
+
+.loading-hint {
+  text-align: center;
+  padding: 60px 0;
+  color: #86868b;
+  font-size: 14px;
 }
 
 .empty {

@@ -8,9 +8,11 @@ in a native webview window.
 import os
 import sys
 import threading
+import time
 import logging
 from pathlib import Path
 
+import requests
 import webview
 import uvicorn
 
@@ -62,6 +64,20 @@ def main():
     # Start FastAPI in background thread
     api_thread = threading.Thread(target=start_api_server, daemon=True)
     api_thread.start()
+
+    # Wait for the API server to become ready before opening the window
+    health_url = f"http://127.0.0.1:{API_PORT}/api/health"
+    for _ in range(30):  # up to 3 seconds
+        try:
+            resp = requests.get(health_url, timeout=0.3)
+            if resp.status_code == 200:
+                logger.info("API server ready")
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+    else:
+        logger.warning("API server not ready after waiting; opening window anyway")
 
     # Create and show the webview window
     window = webview.create_window(

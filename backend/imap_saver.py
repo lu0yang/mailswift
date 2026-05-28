@@ -51,9 +51,12 @@ def _find_sent_folder(conn: imaplib.IMAP4_SSL) -> str | None:
         folder_names = set()
         for line in folders:
             if isinstance(line, bytes):
-                parts = line.decode(errors="replace").split(' "/" ')
-                if len(parts) > 1:
-                    name = parts[-1].strip('" ')
+                decoded = line.decode(errors="replace")
+                # The folder name is between the last quote pair, e.g.
+                # '(\\HasNoChildren) "/" "Sent Items"' → "Sent Items"
+                quote_parts = decoded.split('"')
+                if len(quote_parts) >= 2:
+                    name = quote_parts[-2]  # second-to-last quoted segment
                     folder_names.add(name)
 
         for candidate in SENT_FOLDER_CANDIDATES:
