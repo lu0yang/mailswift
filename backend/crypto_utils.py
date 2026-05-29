@@ -1,5 +1,6 @@
 import os
 import base64
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 SALT = b"mail-tool-fixed-salt-v1"
 MACHINE_ID_FILE = Path(__file__).resolve().parent / ".machine_id"
+logger = logging.getLogger(__name__)
 
 
 _mid_cache: str | None = None
@@ -33,7 +35,10 @@ def _machine_id() -> str:
     try:
         MACHINE_ID_FILE.write_text(_mid_cache)
     except OSError:
-        pass
+        logger.warning(
+            "Cannot persist machine-id to %s; passwords will be lost on next restart",
+            MACHINE_ID_FILE,
+        )
     return _mid_cache
 
 

@@ -40,7 +40,7 @@
 </template>
 
 <script setup>
-import { reactive, watch } from "vue";
+import { reactive, watch, nextTick } from "vue";
 import { NInput, NButton, NIcon } from "naive-ui";
 import { AddOutline, CloseOutline } from "@vicons/ionicons5";
 
@@ -48,6 +48,8 @@ const props = defineProps({ modelValue: Object });
 const emit = defineEmits(["update:modelValue"]);
 
 let keyCounter = 0;
+
+let suppressEmit = false;
 
 const local = reactive({
   subscriptions: (props.modelValue?.subscriptions || []).map((s) => ({
@@ -63,6 +65,7 @@ if (local.subscriptions.length === 0) {
 }
 
 watch(local, (v) => {
+  if (suppressEmit) return;
   const clean = v.subscriptions.map(({ subscription_id, subscription_name }) => ({
     subscription_id,
     subscription_name,
@@ -81,6 +84,17 @@ function addSubscription() {
 function removeSubscription(index) {
   local.subscriptions.splice(index, 1);
 }
+
+// Sync when parent clears form data (keep-alive scenario)
+watch(() => props.modelValue?.subscriptions?.length, (len) => {
+  if (len === 0 && local.subscriptions.length > 0) {
+    suppressEmit = true;
+    local.subscriptions.splice(0, local.subscriptions.length, {
+      subscription_id: "", subscription_name: "", _key: ++keyCounter,
+    });
+    nextTick(() => { suppressEmit = false; });
+  }
+});
 </script>
 
 <style scoped>

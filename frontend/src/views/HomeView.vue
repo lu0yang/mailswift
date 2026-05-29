@@ -254,13 +254,13 @@ function renderTemplateContent(templateContent) {
     const lines = accounts
       .filter((a) => a.account || a.password || a.account_type)
       .map((a, i) => `${i + 1}. ${a.account} / ${a.password} / ${a.account_type}`);
-    html = html.replace("{account_list}", lines.join("<br>") || "（无）");
+    html = html.replaceAll("{account_list}", lines.join("<br>") || "（无）");
   } else {
     const subs = formData.value.subscriptions || [];
     const lines = subs
       .filter((s) => s.subscription_id || s.subscription_name)
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`);
-    html = html.replace("{subscription_list}", lines.join("<br>") || "（无）");
+    html = html.replaceAll("{subscription_list}", lines.join("<br>") || "（无）");
   }
   return turndown.turndown(html);
 }
@@ -315,7 +315,7 @@ function substitutePlainMarkers(text) {
     const accounts = (formData.value.accounts || []).filter((a) => a.account || a.password || a.account_type);
     text = text.replaceAll("{account_plural}", accounts.length === 1 ? "account" : "accounts");
     text = text.replaceAll("{have_has}", accounts.length === 1 ? "has" : "have");
-    text = text.replace("{account_list}", accounts
+    text = text.replaceAll("{account_list}", accounts
       .map((a, i) => `${i + 1}. ${a.account} / ${a.password} / ${a.account_type}`)
       .join("  \n") || "（无）");
     // Per-item markers: only makes sense for single-account manual typing.
@@ -329,7 +329,7 @@ function substitutePlainMarkers(text) {
     const subs = (formData.value.subscriptions || []).filter((s) => s.subscription_id || s.subscription_name);
     text = text.replaceAll("{subscription_plural}", subs.length === 1 ? "subscription" : "subscriptions");
     text = text.replaceAll("{have_has}", subs.length === 1 ? "has" : "have");
-    text = text.replace("{subscription_list}", subs
+    text = text.replaceAll("{subscription_list}", subs
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`)
       .join("  \n") || "（无）");
     if (subs.length >= 1) {

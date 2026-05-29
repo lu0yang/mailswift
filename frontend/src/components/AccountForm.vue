@@ -48,7 +48,7 @@
 </template>
 
 <script setup>
-import { reactive, watch } from "vue";
+import { reactive, watch, nextTick } from "vue";
 import { NInput, NSelect, NButton, NIcon } from "naive-ui";
 import { AddOutline, CloseOutline } from "@vicons/ionicons5";
 
@@ -61,6 +61,8 @@ const accountTypeOptions = [
   { label: "DevOps", value: "DevOps" },
   { label: "DevOps NonRestricted", value: "DevOps NonRestricted" },
 ];
+
+let suppressEmit = false;
 
 const local = reactive({
   accounts: (props.modelValue?.accounts || []).map((a) => ({
@@ -81,6 +83,7 @@ if (local.accounts.length === 0) {
 }
 
 watch(local, () => {
+  if (suppressEmit) return;
   const clean = local.accounts.map(({ account, password, account_type }) => ({
     account,
     password,
@@ -101,6 +104,17 @@ function addAccount() {
 function removeAccount(index) {
   local.accounts.splice(index, 1);
 }
+
+// Sync when parent clears form data (keep-alive scenario)
+watch(() => props.modelValue?.accounts?.length, (len) => {
+  if (len === 0 && local.accounts.length > 0) {
+    suppressEmit = true;
+    local.accounts.splice(0, local.accounts.length, {
+      account: "", password: "", account_type: "", _key: ++keyCounter,
+    });
+    nextTick(() => { suppressEmit = false; });
+  }
+});
 </script>
 
 <style scoped>

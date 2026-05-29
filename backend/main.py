@@ -49,7 +49,10 @@ def _migrate_schema(db: Session):
         settings_cols = {c["name"] for c in insp.get_columns("settings")}
         for col in ("smtp_host", "smtp_port"):
             if col in settings_cols:
-                db.execute(sa.text(f"ALTER TABLE settings DROP COLUMN {col}"))
+                try:
+                    db.execute(sa.text(f"ALTER TABLE settings DROP COLUMN {col}"))
+                except Exception:
+                    pass  # SQLite < 3.35 doesn't support DROP COLUMN; harmless
 
     db.commit()
 
@@ -67,7 +70,6 @@ def _migrate_templates(db: Session):
     if s:
         if s.account_template:
             account_content = s.account_template
-            pwd_reset_content = s.account_template
 
     db.add(EmailTemplate(name="Create DevOps/DevOps NonRestricted", type="account", content=account_content))
     db.add(EmailTemplate(name="Password reset", type="account", content=pwd_reset_content))
@@ -93,7 +95,6 @@ app = FastAPI(title="MailSwift", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -272,12 +273,16 @@ def encode_image(data: EncodeImageRequest):
 
     filepath = url2pathname(parsed.path)
 
+    # Block path traversal attacks
+    if ".." in filepath.replace("\\", "/").split("/"):
+        raise HTTPException(status_code=400, detail="Invalid path")
+
     # On Windows, path may have a leading slash (e.g. /C:/Users/...)
     if filepath and len(filepath) > 2 and filepath[0] == "/" and filepath[2] == ":":
         filepath = filepath[1:]
 
     if not Path(filepath).exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {filepath}")
+        raise HTTPException(status_code=404, detail="File not found")
 
     try:
         with open(filepath, "rb") as f:
@@ -668,6 +673,7 @@ def reset_app(db: Session = Depends(get_db)):
     if s:
         s.encrypted_password = ""
         s.email_address = ""
+        s.updated_at = datetime.now(timezone(timedelta(hours=8)))
         db.flush()
 
     # Delete all user data

@@ -64,7 +64,7 @@ class EmailHistory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     email_type = Column(String(50), nullable=False)
     recipient = Column(String(255), nullable=False)
-    cc = Column(String(500), default="")
+    cc = Column(Text, default="")
     subject = Column(String(500), default="")
     body = Column(Text, default="")
     status = Column(String(20), nullable=False)

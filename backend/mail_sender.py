@@ -67,6 +67,7 @@ def send_email(
             account=account,
             subject=subject,
             body=HTMLBody(body_html),
+            text_body=body_plain,
             to_recipients=to_recipients,
             cc_recipients=cc_recipients,
         )
