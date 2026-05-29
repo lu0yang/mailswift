@@ -13,7 +13,7 @@ EWS_URL = "https://partner.outlook.cn/EWS/Exchange.asmx"
 
 def _get_account(email_address: str, password: str) -> Account:
     creds = Credentials(username=email_address, password=password)
-    config = Configuration(server=EWS_URL, credentials=creds)
+    config = Configuration(service_endpoint=EWS_URL, credentials=creds)
     return Account(
         primary_smtp_address=email_address,
         config=config,

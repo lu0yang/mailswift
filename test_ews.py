@@ -21,7 +21,7 @@ creds = Credentials(username=email, password=password)
 print(f"\n--- Test 1: EWS ({EWS_URL}) ---")
 try:
     config = Configuration(
-        server=EWS_URL,
+        service_endpoint=EWS_URL,
         credentials=creds,
     )
     account = Account(
@@ -54,7 +54,7 @@ if not ews_ok:
     for url in alt_urls:
         print(f"\n--- Test: {url} ---")
         try:
-            config = Configuration(server=url, credentials=creds)
+            config = Configuration(service_endpoint=url, credentials=creds)
             account = Account(
                 primary_smtp_address=email,
                 config=config,
