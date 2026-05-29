@@ -295,7 +295,7 @@ function renderNewFormat(tpl) {
       });
 
     const parts = [header, ...items, footer].filter((p) => p.trim());
-    return parts.join("<br><br>");
+    return parts.join("");
   } else {
     const subs = formData.value.subscriptions || [];
     const count = subs.filter((s) => s.subscription_id || s.subscription_name).length;
@@ -312,7 +312,7 @@ function renderNewFormat(tpl) {
       });
 
     const parts = [header, ...items, footer].filter((p) => p.trim());
-    return parts.join("<br><br>");
+    return parts.join("");
   }
 }
 
