@@ -8,16 +8,35 @@ from exchangelib import (
     HTMLBody,
 )
 
+import logging
+
 EWS_URL = "https://partner.outlook.cn/EWS/Exchange.asmx"
+
+logger = logging.getLogger(__name__)
 
 
 def _get_account(email_address: str, password: str) -> Account:
     creds = Credentials(username=email_address, password=password)
-    config = Configuration(service_endpoint=EWS_URL, credentials=creds)
+
+    # Try explicit URL first
+    try:
+        config = Configuration(service_endpoint=EWS_URL, credentials=creds)
+        account = Account(
+            primary_smtp_address=email_address,
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+        account.inbox.total_count  # verify connectivity
+        return account
+    except Exception:
+        logger.info("Explicit EWS URL failed, falling back to autodiscover")
+
+    # Fall back to autodiscover
     return Account(
         primary_smtp_address=email_address,
-        config=config,
-        autodiscover=False,
+        credentials=creds,
+        autodiscover=True,
         access_type=DELEGATE,
     )
 

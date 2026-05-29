@@ -285,8 +285,15 @@ onMounted(async () => {
     const { data } = await getSettings();
     emailAddress.value = data.email_address || "";
     if (data.password_masked) {
-      isConfigured.value = true;
-      connectionTested.value = true;
+      // Verify saved credentials actually work — same check as the header
+      try {
+        await testSmtp();
+        isConfigured.value = true;
+        connectionTested.value = true;
+      } catch {
+        // Credentials expired — show login form
+        isConfigured.value = false;
+      }
     }
   } catch { /* not yet configured */ }
   await loadTemplates();
