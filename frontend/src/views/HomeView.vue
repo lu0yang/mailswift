@@ -75,7 +75,6 @@
       <div class="preview-header">邮件正文（富文本编辑）</div>
       <RichTextEditor
         v-model="body"
-        :variables="variablePills"
         @update:model-value="onBodyEdited"
       />
     </div>
@@ -179,22 +178,6 @@ const templateOptions = computed(() =>
 const signatureOptions = computed(() =>
   signatures.value.map((s) => ({ label: s.name, value: s.id }))
 );
-
-const variablePills = computed(() => {
-  if (emailType.value === "account") {
-    return [
-      { marker: "{username}", label: "用户名" },
-      { marker: "{password}", label: "密码" },
-      { marker: "{account_type}", label: "账户类型" },
-      { marker: "{account_list}", label: "账号列表" },
-    ];
-  }
-  return [
-    { marker: "{subscription_id}", label: "订阅 ID" },
-    { marker: "{subscription_name}", label: "订阅名称" },
-    { marker: "{subscription_list}", label: "订阅列表" },
-  ];
-});
 
 const previewHtml = computed(() => {
   let html = body.value || "";
