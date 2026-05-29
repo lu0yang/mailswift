@@ -76,6 +76,7 @@
       <RichTextEditor
         ref="rteRef"
         v-model="body"
+        v-model:attachments="attachments"
         @update:model-value="onBodyEdited"
       />
     </div>
@@ -92,6 +93,12 @@
     <n-modal v-model:show="previewVisible" preset="card" title="邮件预览" style="max-width:720px">
       <div v-if="body" class="preview-body" v-html="previewHtml"></div>
       <div v-else class="preview-empty">暂无正文内容</div>
+      <div v-if="attachments.length" class="preview-attachments">
+        <div class="preview-attach-title">附件 ({{ attachments.length }})</div>
+        <div v-for="(a, i) in attachments" :key="i" class="preview-attach-item">
+          {{ a.name }} <span class="preview-attach-size">{{ formatSize(a.size) }}</span>
+        </div>
+      </div>
     </n-modal>
 
     <!-- Signature selector -->
@@ -143,6 +150,7 @@ const previewVisible = ref(false);
 const sending = ref(false);
 
 const rteRef = ref(null);
+const attachments = ref([]);
 const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
@@ -354,6 +362,7 @@ function handleClear() {
   bodySource.value = "";
   userEditedBody.value = false;
   formData.value = {};
+  attachments.value = [];
   clearDraft();
 }
 
@@ -520,6 +529,13 @@ async function handleSend() {
   }
 }
 
+function formatSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
 function clearDraft() {
   try {
     localStorage.removeItem(draftKey());
@@ -678,6 +694,31 @@ function clearDraft() {
   color: #86868b;
   text-align: center;
   padding: 20px 0;
+}
+
+.preview-attachments {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.preview-attach-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #86868b;
+  margin-bottom: 8px;
+}
+
+.preview-attach-item {
+  font-size: 14px;
+  color: #1d1d1f;
+  padding: 4px 0;
+}
+
+.preview-attach-size {
+  color: #86868b;
+  font-size: 12px;
+  margin-left: 8px;
 }
 
 .preview-btn-row {

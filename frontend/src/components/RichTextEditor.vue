@@ -99,7 +99,7 @@ const props = defineProps({
     default: () => [],
   },
 });
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits(["update:modelValue", "update:attachments"]);
 
 const suppressEmit = ref(false);
 
@@ -212,17 +212,23 @@ function handleAttachClick() {
   fileInput.value?.click();
 }
 
+function emitAttachments() {
+  emit("update:attachments", attachments.value.map((a) => ({ name: a.name, size: a.size })));
+}
+
 function handleFileSelect(e) {
   const files = e.target.files;
   if (!files) return;
   for (const f of files) {
     attachments.value.push({ name: f.name, size: f.size, file: f });
   }
+  emitAttachments();
   e.target.value = "";
 }
 
 function removeAttachment(index) {
   attachments.value.splice(index, 1);
+  emitAttachments();
 }
 
 function formatSize(bytes) {
