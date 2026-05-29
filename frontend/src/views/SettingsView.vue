@@ -256,7 +256,7 @@ import {
 import { ArrowBackOutline, AddOutline } from "@vicons/ionicons5";
 import RichTextEditor from "@/components/RichTextEditor.vue";
 import {
-  getSettings, updateSettings, testSmtp,
+  getSettings, updateSettings, testConnection,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
   resetApp, encodeImage,
@@ -266,9 +266,6 @@ const message = useMessage();
 const dialog = useDialog();
 
 // ── Account ──────────────────────────
-
-const SMTP_HOST = "mail.21vianet.com";
-const SMTP_PORT = 587;
 
 const refreshAccount = inject("refreshAccount", () => {});
 
@@ -287,7 +284,7 @@ onMounted(async () => {
     if (data.password_masked) {
       // Verify saved credentials actually work — same check as the header
       try {
-        await testSmtp();
+        await testConnection();
         isConfigured.value = true;
         connectionTested.value = true;
       } catch {
@@ -313,8 +310,6 @@ async function handleSave() {
   saving.value = true;
   try {
     await updateSettings({
-      smtp_host: SMTP_HOST,
-      smtp_port: SMTP_PORT,
       email_address: emailAddress.value,
       password: password.value,
     });
@@ -338,9 +333,7 @@ async function handleTest() {
   }
   testing.value = true;
   try {
-    await testSmtp({
-      smtp_host: SMTP_HOST,
-      smtp_port: SMTP_PORT,
+    await testConnection({
       email_address: emailAddress.value,
       password: password.value,
     });

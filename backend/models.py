@@ -30,8 +30,6 @@ class Settings(Base):
     __tablename__ = "settings"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    smtp_host = Column(String(255), default="mail.21vianet.com")
-    smtp_port = Column(Integer, default=587)
     email_address = Column(String(255), default="")
     encrypted_password = Column(Text, default="")
     account_template = Column(Text, default="")

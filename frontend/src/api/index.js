@@ -13,8 +13,8 @@ export function updateSettings(data) {
   return api.post("/settings", data);
 }
 
-export function testSmtp(data) {
-  return api.post("/settings/test-smtp", data || {});
+export function testConnection(data) {
+  return api.post("/settings/test-connection", data || {});
 }
 
 export function sendEmail(data) {

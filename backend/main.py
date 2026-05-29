@@ -44,6 +44,13 @@ def _migrate_schema(db: Session):
         if "template_id" not in history_cols:
             db.execute(sa.text("ALTER TABLE email_history ADD COLUMN template_id INTEGER"))
 
+    # settings table — drop legacy smtp columns (cleanup after EWS migration)
+    if "settings" in insp.get_table_names():
+        settings_cols = {c["name"] for c in insp.get_columns("settings")}
+        for col in ("smtp_host", "smtp_port"):
+            if col in settings_cols:
+                db.execute(sa.text(f"ALTER TABLE settings DROP COLUMN {col}"))
+
     db.commit()
 
 
@@ -95,15 +102,11 @@ app.add_middleware(
 
 
 class SettingsUpdate(BaseModel):
-    smtp_host: str = "mail.21vianet.com"
-    smtp_port: int = 587
     email_address: str = ""
     password: str = ""
 
 
 class SettingsResponse(BaseModel):
-    smtp_host: str
-    smtp_port: int
     email_address: str
     password_masked: str
     updated_at: str | None
@@ -197,15 +200,11 @@ def get_settings(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     if not s:
         return SettingsResponse(
-            smtp_host="mail.21vianet.com",
-            smtp_port=587,
             email_address="",
             password_masked="",
             updated_at=None,
         )
     return SettingsResponse(
-        smtp_host=s.smtp_host or "mail.21vianet.com",
-        smtp_port=s.smtp_port or 587,
         email_address=s.email_address or "",
         password_masked="********" if s.encrypted_password else "",
         updated_at=s.updated_at.isoformat() if s.updated_at else None,
@@ -218,8 +217,6 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     if not s:
         s = Settings()
         db.add(s)
-    s.smtp_host = payload.smtp_host
-    s.smtp_port = payload.smtp_port
     s.email_address = payload.email_address
     if payload.password:
         s.encrypted_password = encrypt_password(payload.password)
@@ -228,15 +225,13 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-class TestSmtpRequest(BaseModel):
-    smtp_host: str = ""
-    smtp_port: int = 587
+class TestConnectionRequest(BaseModel):
     email_address: str = ""
     password: str = ""
 
 
-@app.post("/api/settings/test-smtp")
-def test_smtp(data: TestSmtpRequest | None = None, db: Session = Depends(get_db)):
+@app.post("/api/settings/test-connection")
+def test_connection(data: TestConnectionRequest | None = None, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
 
     # Use request body params if provided, otherwise fall back to saved settings

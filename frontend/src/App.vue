@@ -38,7 +38,7 @@ import { ref, computed, provide, onMounted } from "vue";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NIcon } from "naive-ui";
 import { SettingsOutline, ListOutline } from "@vicons/ionicons5";
 import { zhCN, dateZhCN } from "naive-ui";
-import { getSettings, testSmtp } from "@/api";
+import { getSettings, testConnection } from "@/api";
 
 const accountEmail = ref("");
 const accountExpired = ref(false);
@@ -62,7 +62,7 @@ async function refreshAccount() {
       accountEmail.value = data.email_address;
       // silently verify credentials are still valid
       try {
-        await testSmtp();
+        await testConnection();
         accountExpired.value = false;
       } catch {
         accountExpired.value = true;
