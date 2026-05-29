@@ -59,7 +59,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onBeforeUnmount } from "vue";
+import { watch, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -73,10 +73,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["update:modelValue"]);
 
-const initialValue = ref(props.modelValue);
-
 const editor = useEditor({
-  content: initialValue.value,
+  content: props.modelValue,
   extensions: [
     StarterKit.configure({
       heading: false,

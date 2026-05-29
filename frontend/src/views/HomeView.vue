@@ -468,20 +468,13 @@ onBeforeUnmount(() => {
 
 async function handleSend() {
   if (sending.value) return;  // guard against double-click
-  if (!isValidEmail(recipient.value)) {
+  if (recipientError.value) {
     message.warning("收件人邮箱格式不正确");
     return;
   }
-  if (cc.value) {
-    const invalidCc = cc.value
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .filter((addr) => !isValidEmail(addr));
-    if (invalidCc.length > 0) {
-      message.warning(`CC 以下地址格式不正确：${invalidCc.join("、")}`);
-      return;
-    }
+  if (ccError.value) {
+    message.warning(ccError.value);
+    return;
   }
   sending.value = true;
   try {

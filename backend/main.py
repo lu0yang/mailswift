@@ -47,7 +47,8 @@ def _migrate_schema(db: Session):
     # settings table — drop legacy smtp columns (cleanup after EWS migration)
     if "settings" in insp.get_table_names():
         settings_cols = {c["name"] for c in insp.get_columns("settings")}
-        for col in ("smtp_host", "smtp_port"):
+        for col in ("smtp_host", "smtp_port", "imap_host", "imap_port",
+                     "account_template", "subscription_template"):
             if col in settings_cols:
                 try:
                     db.execute(sa.text(f"ALTER TABLE settings DROP COLUMN {col}"))
@@ -63,19 +64,11 @@ def _migrate_templates(db: Session):
     if existing > 0:
         return
 
-    s = db.query(Settings).first()
-    account_content = DEFAULT_ACCOUNT_TEMPLATE
-    sub_content = DEFAULT_SUBSCRIPTION_TEMPLATE
-    pwd_reset_content = DEFAULT_PASSWORD_RESET_TEMPLATE
-    if s:
-        if s.account_template:
-            account_content = s.account_template
-
-    db.add(EmailTemplate(name="Create DevOps/DevOps NonRestricted", type="account", content=account_content))
-    db.add(EmailTemplate(name="Password reset", type="account", content=pwd_reset_content))
-    db.add(EmailTemplate(name="Request Subscription", type="subscription", content=sub_content))
+    db.add(EmailTemplate(name="Create DevOps/DevOps NonRestricted", type="account", content=DEFAULT_ACCOUNT_TEMPLATE))
+    db.add(EmailTemplate(name="Password reset", type="account", content=DEFAULT_PASSWORD_RESET_TEMPLATE))
+    db.add(EmailTemplate(name="Request Subscription", type="subscription", content=DEFAULT_SUBSCRIPTION_TEMPLATE))
     db.commit()
-    logger.info("Migrated legacy templates to email_templates table")
+    logger.info("Created default email templates")
 
 
 @asynccontextmanager
@@ -416,119 +409,8 @@ def delete_signature(signature_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-# ── Template rendering ──────────────────────────────────
-
-
-def render_account_list(accounts: list[AccountItem]) -> str:
-    lines = []
-    for i, acct in enumerate(accounts, 1):
-        lines.append(f"{i}. {acct.account} / {acct.password} / {acct.account_type}")
-    return "\n".join(lines) if lines else "（无）"
-
-
-def render_subscription_list(subs: list[SubscriptionItem]) -> str:
-    lines = []
-    for i, sub in enumerate(subs, 1):
-        lines.append(f"{i}. {sub.subscription_id} - {sub.subscription_name}")
-    return "\n".join(lines) if lines else "（无）"
-
-
-def render_body(template_content: str, data: SendEmailRequest) -> str:
-    """Substitute template variables into the body."""
-
-    # Try new JSON format: {"header": "...", "item": "...", "footer": "..."}
-    import json as _json
-    try:
-        tpl = _json.loads(template_content)
-        if isinstance(tpl, dict) and "item" in tpl:
-            return _render_new_format(tpl, data)
-    except (_json.JSONDecodeError, TypeError):
-        pass
-
-    # Legacy / plain-text format: handle markers directly
-    return _render_plain_markers(template_content, data)
-
-
-def _render_new_format(tpl: dict, data: SendEmailRequest) -> str:
-    """Render the new three-section JSON template format."""
-    header = tpl.get("header", "")
-    item_tpl = tpl.get("item", "")
-    footer = tpl.get("footer", "")
-
-    if data.email_type == "account":
-        count = len(data.accounts)
-        plural_val = "account" if count == 1 else "accounts"
-        have_has = "has" if count == 1 else "have"
-        header = header.replace("{account_plural}", plural_val)
-        header = header.replace("{subscription_plural}", "subscription")
-        header = header.replace("{have_has}", have_has)
-
-        items = []
-        for acct in data.accounts:
-            part = item_tpl.replace("{username}", acct.account)
-            part = part.replace("{password}", acct.password)
-            part = part.replace("{account_type}", acct.account_type)
-            items.append(part)
-    else:
-        count = len(data.subscriptions)
-        plural_val = "subscription" if count == 1 else "subscriptions"
-        have_has = "has" if count == 1 else "have"
-        header = header.replace("{subscription_plural}", plural_val)
-        header = header.replace("{account_plural}", "account")
-        header = header.replace("{have_has}", have_has)
-
-        items = []
-        for sub in data.subscriptions:
-            part = item_tpl.replace("{subscription_id}", sub.subscription_id)
-            part = part.replace("{subscription_name}", sub.subscription_name)
-            items.append(part)
-
-    # Filter empty strings before joining to avoid double line breaks
-    parts = [p for p in [header, *items, footer] if p.strip()]
-    return "\n\n".join(parts)
-
-
-def _render_plain_markers(text: str, data: SendEmailRequest) -> str:
-    """Substitute new-format markers in non-JSON body text."""
-    if data.email_type == "account":
-        count = len(data.accounts)
-        text = text.replace("{account_plural}", "account" if count == 1 else "accounts")
-        text = text.replace("{have_has}", "has" if count == 1 else "have")
-        text = text.replace("{account_list}", render_account_list(data.accounts))
-        # Per-item markers: build a simple list for multi-account; single replacement for one
-        if count == 1:
-            a = data.accounts[0]
-            text = text.replace("{username}", a.account)
-            text = text.replace("{password}", a.password)
-            text = text.replace("{account_type}", a.account_type)
-        else:
-            items = []
-            for a in data.accounts:
-                items.append(f"{a.account} / {a.password} / {a.account_type}")
-            text = text.replace("{username}", "\n".join(items))
-            text = text.replace("{password}", "\n".join(items))
-            text = text.replace("{account_type}", "\n".join(items))
-    else:
-        count = len(data.subscriptions)
-        text = text.replace("{subscription_plural}", "subscription" if count == 1 else "subscriptions")
-        text = text.replace("{have_has}", "has" if count == 1 else "have")
-        text = text.replace("{subscription_list}", render_subscription_list(data.subscriptions))
-        if count == 1:
-            s = data.subscriptions[0]
-            text = text.replace("{subscription_id}", s.subscription_id)
-            text = text.replace("{subscription_name}", s.subscription_name)
-        else:
-            items = []
-            for s in data.subscriptions:
-                items.append(f"{s.subscription_id} - {s.subscription_name}")
-            text = text.replace("{subscription_id}", "\n".join(items))
-            text = text.replace("{subscription_name}", "\n".join(items))
-    return text
-
-
 def _strip_markdown(md: str) -> str:
     """Strip common Markdown formatting for the plain-text email alternative."""
-    import re
     # Remove link syntax: [text](url) → text
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", md)
     # Remove image syntax: ![alt](url) → alt
@@ -562,10 +444,6 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="请至少添加一条账号")
     if data.email_type == "subscription" and not data.subscriptions:
         raise HTTPException(status_code=400, detail="请至少添加一条订阅")
-
-    # Server-side fallback: substitute any remaining {account_list}/{subscription_list}
-    # placeholders in case the frontend didn't already do it.
-    body_md = render_body(body_md, data)
 
     # Convert markdown → HTML
     body_html = markdown.markdown(body_md, output_format="html")
