@@ -1,33 +1,35 @@
-import os
 import sys
 import threading
-import webbrowser
 
 import uvicorn
 
 
 def main():
-    # PyInstaller sets sys.frozen; our backend code uses this to locate
-    # the frontend dist relative to the executable
     host = "127.0.0.1"
     port = 8080
 
-    # Open browser after a short delay
-    threading.Timer(1.5, lambda: webbrowser.open(f"http://{host}:{port}")).start()
-
-    # Prevent multiprocessing issues in frozen builds
-    if getattr(sys, "frozen", False):
-        # uvicorn multiprocessing doesn't work in frozen builds
-        workers = 1
-    else:
-        workers = 1
-
-    uvicorn.run(
-        "backend.main:app",
-        host=host,
-        port=port,
-        log_level="info",
+    # Start uvicorn in a background thread so it doesn't block the GUI
+    server_thread = threading.Thread(
+        target=lambda: uvicorn.run(
+            "backend.main:app",
+            host=host,
+            port=port,
+            log_level="info",
+        ),
+        daemon=True,
     )
+    server_thread.start()
+
+    # Launch native desktop window (no browser needed)
+    try:
+        import webview
+        webview.create_window("MailSwift", f"http://{host}:{port}", width=1200, height=800)
+        webview.start()
+    except ImportError:
+        # Fallback for development: open in browser
+        import webbrowser
+        webbrowser.open(f"http://{host}:{port}")
+        server_thread.join()
 
 
 if __name__ == "__main__":
