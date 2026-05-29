@@ -156,15 +156,15 @@
       <div class="modal-section">
         <label class="section-label">
           <span class="section-num">1</span> 开头文字
-          <span class="section-hint">— 所有账号前，出现一次</span>
+          <span class="section-hint">— 所有{{ templateForm.type === 'account' ? '账号' : '订阅' }}前，出现一次</span>
         </label>
         <RichTextEditor v-model="templateForm.header" :variables="headerVariables" />
       </div>
 
       <div class="modal-section">
         <label class="section-label">
-          <span class="section-num">2</span> 每条账号格式
-          <span class="section-hint">— 有几条账号就重复几次</span>
+          <span class="section-num">2</span> 每条{{ templateForm.type === 'account' ? '账号' : '订阅' }}格式
+          <span class="section-hint">— 有几条{{ templateForm.type === 'account' ? '账号' : '订阅' }}就重复几次</span>
         </label>
         <RichTextEditor v-model="templateForm.item" :variables="itemVariables" />
       </div>
@@ -172,7 +172,7 @@
       <div class="modal-section">
         <label class="section-label">
           <span class="section-num">3</span> 结尾文字
-          <span class="section-hint">— 所有账号后，出现一次</span>
+          <span class="section-hint">— 所有{{ templateForm.type === 'account' ? '账号' : '订阅' }}后，出现一次</span>
         </label>
         <RichTextEditor v-model="templateForm.footer" :variables="[]" />
       </div>
@@ -519,7 +519,7 @@ async function handleSaveTemplate() {
     return;
   }
   if (!templateForm.value.item) {
-    message.warning("请填写至少每条账号格式");
+    message.warning(templateForm.value.type === "account" ? "请填写至少每条账号格式" : "请填写至少每条订阅格式");
     return;
   }
   templateSaving.value = true;
