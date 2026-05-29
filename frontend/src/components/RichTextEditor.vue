@@ -59,10 +59,12 @@
 </template>
 
 <script setup>
-import { watch, onBeforeUnmount } from "vue";
+import { ref, watch, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
+import { encodeImage } from "@/api";
 
 const props = defineProps({
   modelValue: { type: String, default: "" },
@@ -72,6 +74,8 @@ const props = defineProps({
   },
 });
 const emit = defineEmits(["update:modelValue"]);
+
+const suppressEmit = ref(false);
 
 const editor = useEditor({
   content: props.modelValue,
@@ -83,11 +87,62 @@ const editor = useEditor({
       horizontalRule: false,
     }),
     Link.configure({ openOnClick: false, HTMLAttributes: { rel: "noopener" } }),
+    Image.configure({ inline: true }),
   ],
   editorProps: {
     attributes: { class: "rte-content" },
+    handlePaste: (view, event) => {
+      const items = event.clipboardData?.items;
+      if (!items) return false;
+
+      // Direct image paste (screenshot / image file in clipboard)
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              editor.value?.chain().focus().setImage({ src: e.target.result }).run();
+            };
+            reader.readAsDataURL(file);
+            return true;
+          }
+        }
+      }
+
+      // HTML paste containing <img> with local file:// paths
+      const html = event.clipboardData?.getData("text/html");
+      if (html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+        const imgs = doc.querySelectorAll("img");
+        const fileImgs = [];
+        imgs.forEach((img) => {
+          const src = img.getAttribute("src");
+          if (src && (src.startsWith("file://") || /^[A-Z]:[/\\]/i.test(src))) {
+            fileImgs.push({ img, src });
+          }
+        });
+
+        if (fileImgs.length > 0) {
+          Promise.all(
+            fileImgs.map(({ img, src }) =>
+              encodeImage(src)
+                .then(({ data }) => img.setAttribute("src", data.data_uri))
+                .catch(() => {})
+            )
+          ).then(() => {
+            editor.value?.commands.insertContent(doc.body.innerHTML);
+          });
+          return true;
+        }
+      }
+
+      return false;
+    },
   },
   onUpdate: ({ editor }) => {
+    if (suppressEmit.value) return;
     emit("update:modelValue", editor.getHTML());
   },
 });
@@ -96,7 +151,9 @@ watch(
   () => props.modelValue,
   (val) => {
     if (editor.value && val !== editor.value.getHTML()) {
+      suppressEmit.value = true;
       editor.value.commands.setContent(val || "");
+      suppressEmit.value = false;
     }
   }
 );
@@ -234,5 +291,10 @@ onBeforeUnmount(() => {
 
 .rte-content :deep(strong) {
   font-weight: 600;
+}
+
+.rte-content :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 </style>

@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import markdown
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -409,21 +408,9 @@ def delete_signature(signature_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-def _strip_markdown(md: str) -> str:
-    """Strip common Markdown formatting for the plain-text email alternative."""
-    # Remove link syntax: [text](url) → text
-    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", md)
-    # Remove image syntax: ![alt](url) → alt
-    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    # Remove bold/italic markers
-    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
-    # Remove inline code
-    text = re.sub(r"`([^`]+)`", r"\1", text)
-    # Remove heading markers
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    # Remove list markers
-    text = re.sub(r"^[\s]*[-*+]\s+", "  ", text, flags=re.MULTILINE)
-    # Collapse multiple blank lines
+def _strip_html(html: str) -> str:
+    """Strip HTML tags for the plain-text email alternative."""
+    text = re.sub(r"<[^>]+>", "", html)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -437,7 +424,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if not s or not s.email_address or not s.encrypted_password:
         raise HTTPException(status_code=400, detail="请先在设置中配置邮箱凭据")
 
-    body_md = data.body
+    body_html = data.body
 
     # Validate
     if data.email_type == "account" and not data.accounts:
@@ -445,11 +432,8 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if data.email_type == "subscription" and not data.subscriptions:
         raise HTTPException(status_code=400, detail="请至少添加一条订阅")
 
-    # Convert markdown → HTML
-    body_html = markdown.markdown(body_md, output_format="html")
-
-    # Plain text version: strip common markdown formatting for readability
-    body_plain = _strip_markdown(body_md)
+    # Plain text version: strip HTML tags
+    body_plain = _strip_html(body_html)
 
     # Append signature HTML if selected
     if data.signature_id:
@@ -476,7 +460,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         recipient=data.recipient,
         cc=data.cc,
         subject=data.subject,
-        body=body_md,
+        body=body_html,
         status="success" if success else "failed",
         error_message=error_msg,
         template_id=data.template_id,

@@ -72,14 +72,11 @@
 
     <!-- Email body editor -->
     <div class="preview-card">
-      <div class="preview-header">邮件正文（Markdown，可编辑）</div>
-      <n-input
-        v-model:value="body"
-        type="textarea"
-        :autosize="{ minRows: 6, maxRows: 20 }"
-        size="large"
-        placeholder="在此编辑邮件正文，支持 Markdown 语法…"
-        @update:value="onBodyEdited"
+      <div class="preview-header">邮件正文（富文本编辑）</div>
+      <RichTextEditor
+        v-model="body"
+        :variables="variablePills"
+        @update:model-value="onBodyEdited"
       />
     </div>
 
@@ -93,7 +90,7 @@
 
     <!-- Preview modal -->
     <n-modal v-model:show="previewVisible" preset="card" title="邮件预览" style="max-width:720px">
-      <div v-if="body" class="preview-body" v-html="htmlPreview"></div>
+      <div v-if="body" class="preview-body" v-html="previewHtml"></div>
       <div v-else class="preview-empty">暂无正文内容</div>
     </n-modal>
 
@@ -128,8 +125,7 @@
 import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount } from "vue";
 import { NInput, NSelect, NButton, NModal, useMessage } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
-import { marked } from "marked";
-import TurndownService from "turndown";
+import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
 import { sendEmail, getTemplates, getSignatures } from "@/api";
@@ -150,8 +146,6 @@ const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
 const bodySource = ref("");
-
-const turndown = new TurndownService({ linkStyle: "referenced", headingStyle: "atx" });
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -186,8 +180,24 @@ const signatureOptions = computed(() =>
   signatures.value.map((s) => ({ label: s.name, value: s.id }))
 );
 
-const htmlPreview = computed(() => {
-  let html = body.value ? marked.parse(body.value) : "";
+const variablePills = computed(() => {
+  if (emailType.value === "account") {
+    return [
+      { marker: "{username}", label: "用户名" },
+      { marker: "{password}", label: "密码" },
+      { marker: "{account_type}", label: "账户类型" },
+      { marker: "{account_list}", label: "账号列表" },
+    ];
+  }
+  return [
+    { marker: "{subscription_id}", label: "订阅 ID" },
+    { marker: "{subscription_name}", label: "订阅名称" },
+    { marker: "{subscription_list}", label: "订阅列表" },
+  ];
+});
+
+const previewHtml = computed(() => {
+  let html = body.value || "";
   if (selectedSignatureId.value) {
     const sig = signatures.value.find((s) => s.id === selectedSignatureId.value);
     if (sig && sig.content) {
@@ -239,7 +249,6 @@ onActivated(async () => {
 function renderTemplateContent(templateContent) {
   if (!templateContent) return "";
 
-  // Try new JSON format: {"header": "...", "item": "...", "footer": "..."}
   try {
     const tpl = JSON.parse(templateContent);
     if (tpl && typeof tpl === "object" && "item" in tpl) {
@@ -247,7 +256,6 @@ function renderTemplateContent(templateContent) {
     }
   } catch { /* legacy format */ }
 
-  // Legacy format: {account_list} / {subscription_list} markers in HTML
   let html = templateContent;
   if (emailType.value === "account") {
     const accounts = formData.value.accounts || [];
@@ -262,7 +270,7 @@ function renderTemplateContent(templateContent) {
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`);
     html = html.replaceAll("{subscription_list}", lines.join("<br>") || "（无）");
   }
-  return turndown.turndown(html);
+  return html;
 }
 
 function renderNewFormat(tpl) {
@@ -287,8 +295,7 @@ function renderNewFormat(tpl) {
       });
 
     const parts = [header, ...items, footer].filter((p) => p.trim());
-    // Convert HTML (from rich text editor) to Markdown for the textarea
-    return turndown.turndown(parts.join("\n\n"));
+    return parts.join("<br><br>");
   } else {
     const subs = formData.value.subscriptions || [];
     const count = subs.filter((s) => s.subscription_id || s.subscription_name).length;
@@ -305,7 +312,7 @@ function renderNewFormat(tpl) {
       });
 
     const parts = [header, ...items, footer].filter((p) => p.trim());
-    return turndown.turndown(parts.join("\n\n"));
+    return parts.join("<br><br>");
   }
 }
 
@@ -317,9 +324,7 @@ function substitutePlainMarkers(text) {
     text = text.replaceAll("{have_has}", accounts.length === 1 ? "has" : "have");
     text = text.replaceAll("{account_list}", accounts
       .map((a, i) => `${i + 1}. ${a.account} / ${a.password} / ${a.account_type}`)
-      .join("  \n") || "（无）");
-    // Per-item markers: only makes sense for single-account manual typing.
-    // For multiple, just show the first — the backend will render properly.
+      .join("<br>") || "（无）");
     if (accounts.length >= 1) {
       text = text.replaceAll("{username}", accounts[0].account || "");
       text = text.replaceAll("{password}", accounts[0].password || "");
@@ -331,7 +336,7 @@ function substitutePlainMarkers(text) {
     text = text.replaceAll("{have_has}", subs.length === 1 ? "has" : "have");
     text = text.replaceAll("{subscription_list}", subs
       .map((s, i) => `${i + 1}. ${s.subscription_id} - ${s.subscription_name}`)
-      .join("  \n") || "（无）");
+      .join("<br>") || "（无）");
     if (subs.length >= 1) {
       text = text.replaceAll("{subscription_id}", subs[0].subscription_id || "");
       text = text.replaceAll("{subscription_name}", subs[0].subscription_name || "");
@@ -382,7 +387,6 @@ function onTemplateChange(id) {
 }
 
 function onBodyEdited() {
-  // @update:value only fires for user input, not programmatic changes
   userEditedBody.value = true;
 }
 
