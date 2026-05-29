@@ -22,7 +22,7 @@ from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_connection
 
 if getattr(sys, 'frozen', False):
-    BASE_DIR = Path(sys.executable).parent
+    BASE_DIR = Path(sys._MEIPASS)
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
