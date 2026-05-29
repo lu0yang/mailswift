@@ -249,7 +249,7 @@ def test_connection(data: TestConnectionRequest | None = None, db: Session = Dep
 
     success, error_msg = verify_connection(addr, pwd)
     if not success:
-        raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail="连接失败")
     return {"ok": True}
 
 

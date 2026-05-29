@@ -46,7 +46,7 @@
               <n-input v-model:value="emailAddress" placeholder="yourname@company.com" size="large" clearable />
             </div>
             <div class="form-field">
-              <label class="field-label">密码 / 应用专用密码</label>
+              <label class="field-label">密码</label>
               <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入密码" size="large" />
             </div>
             <div class="btn-row">
@@ -341,7 +341,7 @@ async function handleTest() {
     message.success("连接测试成功");
   } catch (err) {
     connectionTested.value = false;
-    message.error(err.response?.data?.detail || "连接测试失败");
+    message.error("连接失败");
   } finally {
     testing.value = false;
   }

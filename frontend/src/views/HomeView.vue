@@ -509,7 +509,7 @@ async function handleSend() {
       }));
     }
     await sendEmail(payload);
-    message.success("邮件已提交至 SMTP 服务器，最终投递状态请留意退信通知");
+    message.success("邮件发送成功");
     handleClear();
   } catch (err) {
     message.error(err.response?.data?.detail || "发送失败");
