@@ -1,8 +1,11 @@
+import base64
+
 from exchangelib import (
     Account,
     Configuration,
     Credentials,
     DELEGATE,
+    FileAttachment,
     Message,
     Mailbox,
     HTMLBody,
@@ -49,6 +52,7 @@ def send_email(
     body_html: str,
     body_plain: str,
     cc: str = "",
+    attachments: list[dict] | None = None,
 ) -> tuple[bool, str]:
     """Send an email via Exchange EWS. The message is automatically saved to Sent Items."""
     try:
@@ -71,6 +75,12 @@ def send_email(
             to_recipients=to_recipients,
             cc_recipients=cc_recipients,
         )
+
+        if attachments:
+            for att in attachments:
+                content = base64.b64decode(att["content_base64"])
+                m.attach(FileAttachment(name=att["filename"], content=content))
+
         m.send()
         return True, ""
     except Exception as e:

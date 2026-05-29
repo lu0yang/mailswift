@@ -116,6 +116,11 @@ class SubscriptionItem(BaseModel):
     subscription_name: str
 
 
+class AttachmentItem(BaseModel):
+    filename: str
+    content_base64: str
+
+
 class SendEmailRequest(BaseModel):
     email_type: str = Field(..., pattern="^(account|subscription)$")
     recipient: str
@@ -126,6 +131,7 @@ class SendEmailRequest(BaseModel):
     signature_id: int | None = None
     accounts: list[AccountItem] = []
     subscriptions: list[SubscriptionItem] = []
+    attachments: list[AttachmentItem] = []
 
 
 class HistoryResponse(BaseModel):
@@ -453,6 +459,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         body_html=body_html,
         body_plain=body_plain,
         cc=data.cc,
+        attachments=[a.model_dump() for a in data.attachments] if data.attachments else [],
     )
 
     record = EmailHistory(

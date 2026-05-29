@@ -53,8 +53,34 @@
       >
         &#128279;
       </button>
+      <span class="rte-sep"></span>
+      <button
+        class="rte-btn"
+        title="添加附件"
+        @click="handleAttachClick"
+      >
+        &#128206;
+      </button>
+      <input
+        ref="fileInput"
+        type="file"
+        multiple
+        hidden
+        @change="handleFileSelect"
+      />
     </div>
     <editor-content :editor="editor" class="rte-content" />
+    <div v-if="attachments.length" class="rte-attachments">
+      <div
+        v-for="(f, i) in attachments"
+        :key="i"
+        class="rte-attach-item"
+      >
+        <span class="rte-attach-name">{{ f.name }}</span>
+        <span class="rte-attach-size">{{ formatSize(f.size) }}</span>
+        <button class="rte-attach-remove" @click="removeAttachment(i)">&times;</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -177,6 +203,40 @@ function toggleLink() {
   }
 }
 
+// ── Attachments ────────────────
+
+const fileInput = ref(null);
+const attachments = ref([]);
+
+function handleAttachClick() {
+  fileInput.value?.click();
+}
+
+function handleFileSelect(e) {
+  const files = e.target.files;
+  if (!files) return;
+  for (const f of files) {
+    attachments.value.push({ name: f.name, size: f.size, file: f });
+  }
+  e.target.value = "";
+}
+
+function removeAttachment(index) {
+  attachments.value.splice(index, 1);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function getAttachments() {
+  return attachments.value.map((a) => a.file);
+}
+
+defineExpose({ getAttachments });
+
 onBeforeUnmount(() => {
   editor.value?.destroy();
 });
@@ -296,5 +356,53 @@ onBeforeUnmount(() => {
 .rte-content :deep(img) {
   max-width: 100%;
   height: auto;
+}
+
+.rte-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.rte-attach-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f0f0f0;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.rte-attach-name {
+  color: #1d1d1f;
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rte-attach-size {
+  color: #86868b;
+}
+
+.rte-attach-remove {
+  border: none;
+  background: none;
+  color: #86868b;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.rte-attach-remove:hover {
+  color: #d03050;
+  background: rgba(0, 0, 0, 0.05);
 }
 </style>

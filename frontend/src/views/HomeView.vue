@@ -74,6 +74,7 @@
     <div class="preview-card">
       <div class="preview-header">邮件正文（富文本编辑）</div>
       <RichTextEditor
+        ref="rteRef"
         v-model="body"
         @update:model-value="onBodyEdited"
       />
@@ -141,6 +142,7 @@ const userEditedBody = ref(false);
 const previewVisible = ref(false);
 const sending = ref(false);
 
+const rteRef = ref(null);
 const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
@@ -488,6 +490,26 @@ async function handleSend() {
         subscription_name: s.subscription_name,
       }));
     }
+    // Attachments
+    const files = rteRef.value?.getAttachments() || [];
+    if (files.length) {
+      payload.attachments = await Promise.all(
+        files.map(
+          (f) =>
+            new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                resolve({
+                  filename: f.name,
+                  content_base64: e.target.result.split(",")[1],
+                });
+              };
+              reader.readAsDataURL(f);
+            })
+        )
+      );
+    }
+
     await sendEmail(payload);
     message.success("邮件发送成功");
     handleClear();
