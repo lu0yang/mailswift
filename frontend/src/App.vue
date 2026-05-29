@@ -13,10 +13,10 @@
               <span class="status-text">{{ accountLabel }}</span>
             </div>
             <n-button text @click="$router.push('/settings')">
-              <template #icon><n-icon><settings-outline /></n-icon></template>
+              <template #icon><SvgIcon name="settings" /></template>
             </n-button>
             <n-button text @click="$router.push('/history')">
-              <template #icon><n-icon><list-outline /></n-icon></template>
+              <template #icon><SvgIcon name="list" /></template>
             </n-button>
           </div>
         </header>
@@ -35,9 +35,9 @@
 
 <script setup>
 import { ref, computed, provide, onMounted } from "vue";
-import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NIcon } from "naive-ui";
-import { SettingsOutline, ListOutline } from "@vicons/ionicons5";
+import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
+import SvgIcon from "@/components/SvgIcon.vue";
 import { getSettings, testConnection } from "@/api";
 
 const accountEmail = ref("");

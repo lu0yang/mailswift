@@ -3,7 +3,7 @@
     <div class="section-header">
       <span class="section-label">账号信息 *</span>
       <n-button size="tiny" type="primary" text @click="addAccount">
-        <template #icon><n-icon><add-outline /></n-icon></template>
+        <template #icon><SvgIcon name="add" /></template>
         添加账号
       </n-button>
     </div>
@@ -40,7 +40,7 @@
           />
         </div>
         <n-button text type="error" size="small" @click="removeAccount(index)">
-          <template #icon><n-icon><close-outline /></n-icon></template>
+          <template #icon><SvgIcon name="close" /></template>
         </n-button>
       </div>
     </TransitionGroup>
@@ -49,8 +49,8 @@
 
 <script setup>
 import { reactive, watch, nextTick } from "vue";
-import { NInput, NSelect, NButton, NIcon } from "naive-ui";
-import { AddOutline, CloseOutline } from "@vicons/ionicons5";
+import { NInput, NSelect, NButton } from "naive-ui";
+import SvgIcon from "@/components/SvgIcon.vue";
 
 const props = defineProps({ modelValue: Object });
 const emit = defineEmits(["update:modelValue"]);

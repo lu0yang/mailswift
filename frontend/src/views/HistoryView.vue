@@ -1,7 +1,7 @@
 <template>
   <div class="history">
     <n-button text size="small" @click="$router.push('/')" class="back-btn">
-      <template #icon><n-icon><arrow-back-outline /></n-icon></template>
+      <template #icon><SvgIcon name="arrow-back" /></template>
       <span style="font-size:14px">返回</span>
     </n-button>
 
@@ -97,8 +97,8 @@
 
 <script setup>
 import { ref, onMounted, onActivated } from "vue";
-import { NButton, NIcon, useMessage, useDialog } from "naive-ui";
-import { ArrowBackOutline } from "@vicons/ionicons5";
+import { NButton, useMessage, useDialog } from "naive-ui";
+import SvgIcon from "@/components/SvgIcon.vue";
 import { getHistory, deleteHistory } from "@/api";
 
 const message = useMessage();

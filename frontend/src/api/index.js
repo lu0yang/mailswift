@@ -1,74 +1,86 @@
-import axios from "axios";
+const BASE = "/api";
 
-const api = axios.create({
-  baseURL: "/api",
-  timeout: 30000,
-});
+async function req(path, { method = "GET", body, params } = {}) {
+  let url = `${BASE}${path}`;
+  if (params) {
+    const qs = new URLSearchParams(params).toString();
+    if (qs) url += `?${qs}`;
+  }
+  const opts = { method };
+  if (body) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(json.detail || `HTTP ${res.status}`);
+    err.response = { data: json, status: res.status };
+    throw err;
+  }
+  return { data: json };
+}
 
 export function getSettings() {
-  return api.get("/settings");
+  return req("/settings");
 }
 
 export function updateSettings(data) {
-  return api.post("/settings", data);
+  return req("/settings", { method: "POST", body: data });
 }
 
 export function testConnection(data) {
-  return api.post("/settings/test-connection", data || {});
+  return req("/settings/test-connection", { method: "POST", body: data || {} });
 }
 
 export function sendEmail(data) {
-  return api.post("/send", data);
+  return req("/send", { method: "POST", body: data });
 }
 
 export function getHistory(params) {
-  return api.get("/history", { params });
+  return req("/history", { params });
 }
 
 export function deleteHistory(id) {
-  return api.delete(`/history/${id}`);
+  return req(`/history/${id}`, { method: "DELETE" });
 }
 
-// Templates
 export function getTemplates(type) {
-  return api.get("/templates", { params: type ? { type } : {} });
+  return req("/templates", { params: type ? { type } : undefined });
 }
 
 export function createTemplate(data) {
-  return api.post("/templates", data);
+  return req("/templates", { method: "POST", body: data });
 }
 
 export function updateTemplate(id, data) {
-  return api.put(`/templates/${id}`, data);
+  return req(`/templates/${id}`, { method: "PUT", body: data });
 }
 
 export function deleteTemplate(id) {
-  return api.delete(`/templates/${id}`);
+  return req(`/templates/${id}`, { method: "DELETE" });
 }
 
-// Signatures
 export function getSignatures() {
-  return api.get("/signatures");
+  return req("/signatures");
 }
 
 export function createSignature(data) {
-  return api.post("/signatures", data);
+  return req("/signatures", { method: "POST", body: data });
 }
 
 export function updateSignature(id, data) {
-  return api.put(`/signatures/${id}`, data);
+  return req(`/signatures/${id}`, { method: "PUT", body: data });
 }
 
 export function deleteSignature(id) {
-  return api.delete(`/signatures/${id}`);
+  return req(`/signatures/${id}`, { method: "DELETE" });
 }
 
 export function encodeImage(url) {
-  return api.post("/encode-image", { url });
+  return req("/encode-image", { method: "POST", body: { url } });
 }
 
 export function resetApp() {
-  return api.post("/reset");
+  return req("/reset", { method: "POST" });
 }
-
-export default api;

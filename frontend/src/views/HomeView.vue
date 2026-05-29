@@ -3,7 +3,7 @@
     <div class="title-row">
       <div class="page-title">发送邮件</div>
       <n-button text type="error" size="small" @click="handleClear">
-        <template #icon><n-icon><trash-outline /></n-icon></template>
+        <template #icon><SvgIcon name="trash" /></template>
         一键清理
       </n-button>
     </div>
@@ -16,7 +16,7 @@
         @click="switchType('account')"
       >
         <div class="type-icon">
-          <n-icon size="24"><person-outline /></n-icon>
+          <SvgIcon name="person" :size="24" />
         </div>
         <div class="type-label">账号创建/重置</div>
         <div class="type-desc">发送账号和密码信息</div>
@@ -27,7 +27,7 @@
         @click="switchType('subscription')"
       >
         <div class="type-icon">
-          <n-icon size="24"><cube-outline /></n-icon>
+          <SvgIcon name="cube" :size="24" />
         </div>
         <div class="type-label">订阅创建</div>
         <div class="type-desc">发送订阅信息</div>
@@ -86,7 +86,7 @@
     <!-- Preview button -->
     <div class="preview-btn-row">
       <n-button size="large" @click="previewVisible = true">
-        <template #icon><n-icon><eye-outline /></n-icon></template>
+        <template #icon><SvgIcon name="eye" /></template>
         预览邮件
       </n-button>
     </div>
@@ -118,7 +118,7 @@
       block
       @click="handleSend"
     >
-      <template #icon><n-icon><send-outline /></n-icon></template>
+      <template #icon><SvgIcon name="send" /></template>
       发送邮件
     </n-button>
   </div>
@@ -126,8 +126,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount } from "vue";
-import { NInput, NSelect, NButton, NIcon, NModal, useMessage } from "naive-ui";
-import { PersonOutline, CubeOutline, SendOutline, EyeOutline, TrashOutline } from "@vicons/ionicons5";
+import { NInput, NSelect, NButton, NModal, useMessage } from "naive-ui";
+import SvgIcon from "@/components/SvgIcon.vue";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import AccountForm from "@/components/AccountForm.vue";

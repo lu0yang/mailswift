@@ -1,7 +1,7 @@
 <template>
   <div class="settings">
     <n-button text size="small" @click="$router.push('/')" class="back-btn">
-      <template #icon><n-icon><arrow-back-outline /></n-icon></template>
+      <template #icon><SvgIcon name="arrow-back" /></template>
       <span style="font-size:14px">返回</span>
     </n-button>
 
@@ -80,7 +80,7 @@
               </div>
             </div>
             <n-button type="primary" size="small" @click="openTemplateModal(null)">
-              <template #icon><n-icon><add-outline /></n-icon></template>
+              <template #icon><SvgIcon name="add" /></template>
               新建模板
             </n-button>
           </div>
@@ -107,7 +107,7 @@
           <div class="tab-header">
             <span></span>
             <n-button type="primary" size="small" @click="openSignatureModal(null)">
-              <template #icon><n-icon><add-outline /></n-icon></template>
+              <template #icon><SvgIcon name="add" /></template>
               新建签名
             </n-button>
           </div>
@@ -250,10 +250,10 @@
 <script setup>
 import { ref, computed, watch, onMounted, inject } from "vue";
 import {
-  NInput, NSelect, NButton, NIcon, NTabs, NTabPane,
+  NInput, NSelect, NButton, NTabs, NTabPane,
   NModal, NCheckbox, useMessage, useDialog,
 } from "naive-ui";
-import { ArrowBackOutline, AddOutline } from "@vicons/ionicons5";
+import SvgIcon from "@/components/SvgIcon.vue";
 import RichTextEditor from "@/components/RichTextEditor.vue";
 import {
   getSettings, updateSettings, testConnection,
