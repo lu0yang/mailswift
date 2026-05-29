@@ -1,31 +1,28 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from exchangelib import (
+    Account,
+    Configuration,
+    Credentials,
+    DELEGATE,
+    Message,
+    Mailbox,
+    HTMLBody,
+)
+
+EWS_URL = "https://partner.outlook.cn/EWS/Exchange.asmx"
 
 
-def verify_smtp_connection(
-    smtp_host: str,
-    smtp_port: int,
-    email_address: str,
-    password: str,
-) -> tuple[bool, str]:
-    """Verify SMTP credentials by connecting + authenticating, without sending any email."""
-    try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-            server.starttls()
-            server.login(email_address, password)
-        return True, ""
-    except smtplib.SMTPAuthenticationError:
-        return False, "SMTP 认证失败，请检查邮箱和密码是否正确"
-    except smtplib.SMTPConnectError:
-        return False, "无法连接到 SMTP 服务器，请检查网络"
-    except Exception as e:
-        return False, str(e)
+def _get_account(email_address: str, password: str) -> Account:
+    creds = Credentials(username=email_address, password=password)
+    config = Configuration(server=EWS_URL, credentials=creds)
+    return Account(
+        primary_smtp_address=email_address,
+        config=config,
+        autodiscover=False,
+        access_type=DELEGATE,
+    )
 
 
 def send_email(
-    smtp_host: str,
-    smtp_port: int,
     email_address: str,
     password: str,
     recipient: str,
@@ -33,37 +30,38 @@ def send_email(
     body_html: str,
     body_plain: str,
     cc: str = "",
-) -> tuple[bool, str, bytes]:
-    """Send an email via SMTP with HTML + plain text multipart.
-
-    Returns (success, error_message, raw_message_bytes).
-    The raw bytes can be used for IMAP APPEND archiving.
-    """
-    msg = MIMEMultipart("alternative")
-    msg["From"] = email_address
-    msg["To"] = recipient
-    msg["Subject"] = subject
-    if cc:
-        msg["Cc"] = cc
-
-    msg.attach(MIMEText(body_plain, "plain", "utf-8"))
-    msg.attach(MIMEText(body_html, "html", "utf-8"))
-
-    all_recipients = [recipient]
-    if cc:
-        all_recipients += [addr.strip() for addr in cc.split(",") if addr.strip()]
-
+) -> tuple[bool, str]:
+    """Send an email via Exchange EWS. The message is automatically saved to Sent Items."""
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-            server.starttls()
-            server.login(email_address, password)
-            server.sendmail(email_address, all_recipients, msg.as_string())
-        return True, "", msg.as_bytes()
-    except smtplib.SMTPAuthenticationError:
-        return False, "SMTP 认证失败，请检查邮箱和密码是否正确", b""
-    except smtplib.SMTPConnectError:
-        return False, "无法连接到 SMTP 服务器，请检查网络", b""
-    except smtplib.SMTPRecipientsRefused:
-        return False, "收件人地址被拒收", b""
+        account = _get_account(email_address, password)
+
+        to_recipients = [Mailbox(email_address=recipient)]
+        cc_recipients = None
+        if cc:
+            cc_recipients = [
+                Mailbox(email_address=addr.strip())
+                for addr in cc.split(",")
+                if addr.strip()
+            ]
+
+        m = Message(
+            account=account,
+            subject=subject,
+            body=HTMLBody(body_html),
+            to_recipients=to_recipients,
+            cc_recipients=cc_recipients,
+        )
+        m.send()
+        return True, ""
     except Exception as e:
-        return False, str(e), b""
+        return False, str(e)
+
+
+def verify_connection(email_address: str, password: str) -> tuple[bool, str]:
+    """Verify credentials by connecting to Exchange EWS."""
+    try:
+        account = _get_account(email_address, password)
+        account.inbox.total_count
+        return True, ""
+    except Exception as e:
+        return False, str(e)

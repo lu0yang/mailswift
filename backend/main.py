@@ -20,7 +20,7 @@ from .models import (
     DEFAULT_PASSWORD_RESET_TEMPLATE,
 )
 from .crypto_utils import encrypt_password, decrypt_password
-from .mail_sender import send_email, verify_smtp_connection
+from .mail_sender import send_email, verify_connection
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -241,22 +241,18 @@ def test_smtp(data: TestSmtpRequest | None = None, db: Session = Depends(get_db)
 
     # Use request body params if provided, otherwise fall back to saved settings
     if data and data.email_address and data.password:
-        host = data.smtp_host or "mail.21vianet.com"
-        port = data.smtp_port or 587
         addr = data.email_address
         pwd = data.password
     elif s and s.email_address and s.encrypted_password:
-        host = s.smtp_host
-        port = s.smtp_port
         addr = s.email_address
         try:
             pwd = decrypt_password(s.encrypted_password)
         except ValueError:
-            raise HTTPException(status_code=400, detail="密码解密失败，请重新配置 SMTP 凭据")
+            raise HTTPException(status_code=400, detail="密码解密失败，请重新配置凭据")
     else:
         raise HTTPException(status_code=400, detail="请先填写邮箱地址和密码")
 
-    success, error_msg = verify_smtp_connection(host, port, addr, pwd)
+    success, error_msg = verify_connection(addr, pwd)
     if not success:
         raise HTTPException(status_code=400, detail=error_msg)
     return {"ok": True}
@@ -586,10 +582,8 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     try:
         smtp_password = decrypt_password(s.encrypted_password)
     except ValueError:
-        raise HTTPException(status_code=400, detail="密码解密失败，请重新配置 SMTP 凭据")
-    success, error_msg, msg_bytes = send_email(
-        smtp_host=s.smtp_host,
-        smtp_port=s.smtp_port,
+        raise HTTPException(status_code=400, detail="密码解密失败，请重新配置凭据")
+    success, error_msg = send_email(
         email_address=s.email_address,
         password=smtp_password,
         recipient=data.recipient,
