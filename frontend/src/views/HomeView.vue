@@ -56,12 +56,60 @@
     <div class="form-row">
       <div class="form-col">
         <label class="field-label">收件人 *</label>
-        <n-input v-model:value="recipient" placeholder="user@example.com" size="large" clearable :status="recipientError ? 'error' : undefined" />
+        <div class="pill-input-shell" :class="{ 'pill-input-error': recipientError }">
+          <span v-for="(addr, i) in recipientTags" :key="i" class="pill-tag" :class="{ editing: editRecipientIdx === i }" @dblclick="editRecipientIdx = i">
+            <template v-if="editRecipientIdx === i">
+              <input
+                v-model="recipientTags[i]"
+                class="pill-edit-input"
+                @keyup.enter="editRecipientIdx = -1"
+                @blur="editRecipientIdx = -1"
+                @click.stop
+              />
+            </template>
+            <template v-else>
+              {{ addr }}<button class="pill-tag-x" @click="recipientTags.splice(i, 1)">×</button>
+            </template>
+          </span>
+          <n-auto-complete
+            v-model:value="recipientInput"
+            :options="recipOptions"
+            :filterable="false"
+            placeholder="输入邮箱，回车添加"
+            size="small"
+            class="pill-auto"
+            @keyup.enter.prevent="addRecipientTag"
+          />
+        </div>
         <span v-if="recipientError" class="field-error">{{ recipientError }}</span>
       </div>
       <div class="form-col">
         <label class="field-label">抄送 CC</label>
-        <n-input v-model:value="cc" placeholder="cc@example.com（多人用逗号分隔）" size="large" clearable :status="ccError ? 'error' : undefined" />
+        <div class="pill-input-shell">
+          <span v-for="(addr, i) in ccTags" :key="i" class="pill-tag" :class="{ editing: editCcIdx === i }" @dblclick="editCcIdx = i">
+            <template v-if="editCcIdx === i">
+              <input
+                v-model="ccTags[i]"
+                class="pill-edit-input"
+                @keyup.enter="editCcIdx = -1"
+                @blur="editCcIdx = -1"
+                @click.stop
+              />
+            </template>
+            <template v-else>
+              {{ addr }}<button class="pill-tag-x" @click="ccTags.splice(i, 1)">×</button>
+            </template>
+          </span>
+          <n-auto-complete
+            v-model:value="ccInput"
+            :options="ccOptions"
+            :filterable="false"
+            placeholder="输入邮箱，回车添加"
+            size="small"
+            class="pill-auto"
+            @keyup.enter.prevent="addCcTag"
+          />
+        </div>
         <span v-if="ccError" class="field-error">{{ ccError }}</span>
       </div>
     </div>
@@ -130,20 +178,24 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount } from "vue";
-import { NInput, NSelect, NButton, NModal, useMessage } from "naive-ui";
+import { NInput, NSelect, NButton, NModal, NAutoComplete, useMessage } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
 import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
-import { sendEmail, getTemplates, getSignatures } from "@/api";
+import { sendEmail, getTemplates, getSignatures, getHistory } from "@/api";
 
 const message = useMessage();
 const emailType = ref("account");
 const selectedTemplateId = ref(null);
 const selectedSignatureId = ref(null);
 const subject = ref("");
-const recipient = ref("");
-const cc = ref("");
+const recipientTags = ref([]);
+const recipientInput = ref("");
+const ccTags = ref([]);
+const ccInput = ref("");
+const editRecipientIdx = ref(-1);
+const editCcIdx = ref(-1);
 const body = ref("");
 const userEditedBody = ref(false);
 const previewVisible = ref(false);
@@ -156,6 +208,76 @@ const templates = ref([]);
 const signatures = ref([]);
 const bodySource = ref("");
 
+// ── Recipient autocomplete ────────
+
+const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
+const PRESET_KEY = "mailswift_preset_domains";
+const historyEmails = ref([]);
+
+function loadPresetDomains() {
+  try {
+    const raw = localStorage.getItem(PRESET_KEY);
+    return raw ? JSON.parse(raw) : [...DEFAULT_DOMAINS];
+  } catch { return [...DEFAULT_DOMAINS]; }
+}
+
+function makeOptions(inputVal) {
+  const val = inputVal || "";
+  const atIdx = val.indexOf("@");
+  const domains = loadPresetDomains();
+  if (atIdx >= 0) {
+    const afterAt = val.slice(atIdx);
+    return domains.filter((d) => d.startsWith(afterAt));
+  }
+  if (!val) return historyEmails.value;
+  return historyEmails.value.filter((e) => e.toLowerCase().includes(val.toLowerCase()));
+}
+
+const recipOptions = computed(() => makeOptions(recipientInput.value));
+const ccOptions = computed(() => makeOptions(ccInput.value));
+
+function addRecipientTag() {
+  const val = recipientInput.value.trim();
+  if (!val) return;
+  recipientInput.value = "";
+  if (!recipientTags.value.includes(val)) recipientTags.value.push(val);
+}
+
+function addCcTag() {
+  const val = ccInput.value.trim();
+  if (!val) return;
+  ccInput.value = "";
+  if (!ccTags.value.includes(val)) ccTags.value.push(val);
+}
+
+// Domain-overwrite repair for both fields
+function domainWatch(inputRef) {
+  watch(inputRef, (val, oldVal) => {
+    if (!val || !oldVal) return;
+    const oldAt = oldVal.indexOf("@");
+    if (oldAt > 0 && val.startsWith("@") && loadPresetDomains().includes(val)) {
+      inputRef.value = oldVal.slice(0, oldAt) + val;
+    }
+  });
+}
+domainWatch(recipientInput);
+domainWatch(ccInput);
+
+async function loadHistoryEmails() {
+  try {
+    const { data } = await getHistory({ page: 1, page_size: 200 });
+    const seen = new Set();
+    const addrs = [];
+    (data.items || []).forEach((item) => {
+      [item.recipient, ...(item.cc || "").split(",")].forEach((a) => {
+        const addr = a.trim();
+        if (addr && !seen.has(addr)) { seen.add(addr); addrs.push(addr); }
+      });
+    });
+    historyEmails.value = addrs;
+  } catch { /* no history yet */ }
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function isValidEmail(str) {
@@ -163,19 +285,16 @@ function isValidEmail(str) {
 }
 
 const recipientError = computed(() => {
-  if (!recipient.value) return "";
-  if (!isValidEmail(recipient.value)) return "邮箱格式不正确";
+  if (!recipientTags.value.length) return "";
+  const bad = recipientTags.value.filter((a) => !isValidEmail(a));
+  if (bad.length) return `格式不正确：${bad.join("、")}`;
   return "";
 });
 
 const ccError = computed(() => {
-  if (!cc.value) return "";
-  const invalid = cc.value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((addr) => !isValidEmail(addr));
-  if (invalid.length > 0) return `以下地址格式不正确：${invalid.join("、")}`;
+  if (!ccTags.value.length) return "";
+  const bad = ccTags.value.filter((a) => !isValidEmail(a));
+  if (bad.length) return `格式不正确：${bad.join("、")}`;
   return "";
 });
 
@@ -201,7 +320,7 @@ const previewHtml = computed(() => {
 });
 
 const canSend = computed(() => {
-  if (!subject.value || !recipient.value) return false;
+  if (!subject.value || !recipientTags.value.length) return false;
   if (emailType.value === "account") {
     const accounts = formData.value.accounts;
     return accounts && accounts.length > 0 && accounts.some((a) => a.account && a.password && a.account_type);
@@ -218,6 +337,7 @@ onMounted(async () => {
     templates.value = tRes.data;
     signatures.value = sRes.data;
   } catch { /* ignore */ }
+  loadHistoryEmails();
   loadDraft();
 });
 
@@ -356,8 +476,10 @@ function handleClear() {
   selectedTemplateId.value = null;
   selectedSignatureId.value = null;
   subject.value = "";
-  recipient.value = "";
-  cc.value = "";
+  recipientTags.value = [];
+  recipientInput.value = "";
+  ccTags.value = [];
+  ccInput.value = "";
   body.value = "";
   bodySource.value = "";
   userEditedBody.value = false;
@@ -426,8 +548,8 @@ function saveDraft() {
     selectedTemplateId: selectedTemplateId.value,
     selectedSignatureId: selectedSignatureId.value,
     subject: subject.value,
-    recipient: recipient.value,
-    cc: cc.value,
+    recipient: recipientTags.value.join(","),
+    cc: ccTags.value.join(","),
     body: body.value,
     formData: formData.value,
   };
@@ -444,8 +566,10 @@ function loadDraft() {
     selectedTemplateId.value = draft.selectedTemplateId || null;
     selectedSignatureId.value = draft.selectedSignatureId || null;
     subject.value = draft.subject || "";
-    recipient.value = draft.recipient || "";
-    cc.value = draft.cc || "";
+    const r = draft.recipient || "";
+    recipientTags.value = typeof r === "string" ? r.split(",").filter(Boolean) : (Array.isArray(r) ? r : []);
+    const c = draft.cc || "";
+    ccTags.value = typeof c === "string" ? c.split(",").filter(Boolean) : (Array.isArray(c) ? c : []);
     body.value = draft.body || "";
     formData.value = draft.formData || {};
   } catch { /* ignore */ }
@@ -453,7 +577,7 @@ function loadDraft() {
 
 // Auto-save draft every 3 seconds
 let draftTimer = null;
-watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipient, cc, body, formData], () => {
+watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipientTags, recipientInput, ccTags, ccInput, body, formData], () => {
   clearTimeout(draftTimer);
   draftTimer = setTimeout(saveDraft, 3000);
 }, { deep: true });
@@ -478,8 +602,8 @@ async function handleSend() {
   try {
     const payload = {
       email_type: emailType.value,
-      recipient: recipient.value,
-      cc: cc.value,
+      recipient: recipientTags.value.join(","),
+      cc: ccTags.value.join(","),
       subject: subject.value,
       body: body.value,
       template_id: selectedTemplateId.value || null,
@@ -645,6 +769,86 @@ function clearDraft() {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-bottom: 20px;
+}
+
+.pill-input-shell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  min-height: 40px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.2s;
+}
+
+.pill-input-shell:focus-within {
+  border-color: #0071e3;
+}
+
+.pill-input-shell.pill-input-error {
+  border-color: #e53935;
+}
+
+.pill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  background: #e6f4ea;
+  color: #1e8e3e;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.pill-tag.editing {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.pill-tag-x {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.pill-tag-x:hover {
+  opacity: 1;
+}
+
+.pill-edit-input {
+  width: 180px;
+  padding: 0 4px;
+  font-size: 13px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #1a73e8;
+}
+
+.pill-auto {
+  flex: 1;
+  min-width: 120px;
+}
+
+.pill-auto :deep(.n-auto-complete) {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.pill-auto :deep(.n-input) {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }
 
 .preview-card {

@@ -127,6 +127,45 @@
           </div>
         </div>
       </n-tab-pane>
+
+      <!-- Preset Domains Tab -->
+      <n-tab-pane name="domains" tab="预设域名">
+        <div class="settings-card">
+          <div class="tab-header">
+            <span class="tab-header-hint">收件人输入 @ 后显示的域名建议列表</span>
+            <n-button type="primary" size="small" @click="openDomainModal(-1)">
+              <template #icon><SvgIcon name="add" /></template>
+              添加域名
+            </n-button>
+          </div>
+          <div v-if="domains.length === 0" class="empty">暂无预设域名</div>
+          <div v-for="(d, i) in domains" :key="i" class="list-card">
+            <div class="list-card-main">
+              <div class="list-card-left">
+                <span class="list-card-name">{{ d }}</span>
+              </div>
+              <div class="list-card-right">
+                <n-button text size="tiny" @click="openDomainModal(i)">编辑</n-button>
+                <n-button text size="tiny" type="error" @click="removeDomain(i)">删除</n-button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Domain edit modal -->
+        <n-modal v-model:show="domainModalVisible" preset="card" :title="domainEditIndex >= 0 ? '编辑域名' : '添加域名'" style="max-width:400px">
+          <div class="modal-field">
+            <label class="field-label">域名（以 @ 开头）</label>
+            <n-input v-model:value="domainFormValue" placeholder="@example.com" size="large" />
+          </div>
+          <template #footer>
+            <div class="modal-footer">
+              <n-button @click="domainModalVisible = false">取消</n-button>
+              <n-button type="primary" :disabled="!domainFormValue.startsWith('@')" @click="saveDomain">保存</n-button>
+            </div>
+          </template>
+        </n-modal>
+      </n-tab-pane>
     </n-tabs>
 
     <div class="reset-area">
@@ -230,7 +269,9 @@
           <div class="paste-hint">点击上方区域后按 Ctrl+V 粘贴，工具自动提取 HTML 格式</div>
           <details class="preview-details" style="margin-top:12px">
             <summary class="preview-summary">预览效果</summary>
-            <div class="preview-box" v-html="sigForm.content"></div>
+            <div :style="sigPreviewScale < 1 ? { transform: `scale(${sigPreviewScale})`, transformOrigin: 'top left', width: `${100 / sigPreviewScale}%` } : {}">
+              <div class="preview-box" v-html="sigForm.content"></div>
+            </div>
           </details>
         </div>
       </div>
@@ -248,7 +289,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, inject } from "vue";
+import { ref, computed, watch, onMounted, inject, nextTick } from "vue";
 import {
   NInput, NSelect, NButton, NTabs, NTabPane,
   NModal, NCheckbox, useMessage, useDialog,
@@ -268,6 +309,8 @@ const dialog = useDialog();
 // ── Account ──────────────────────────
 
 const refreshAccount = inject("refreshAccount", () => {});
+const injectedEmail = inject("accountEmail", ref(""));
+const injectedExpired = inject("accountExpired", ref(false));
 
 const emailAddress = ref("");
 const password = ref("");
@@ -281,18 +324,14 @@ onMounted(async () => {
   try {
     const { data } = await getSettings();
     emailAddress.value = data.email_address || "";
+    // Reuse App.vue's already-verified state instead of making a duplicate
+    // testConnection call. The header already shows "expired" if the connection fails.
+    isConfigured.value = !!(data.email_address && data.password_masked && !injectedExpired.value);
     if (data.password_masked) {
-      // Verify saved credentials actually work — same check as the header
-      try {
-        await testConnection();
-        isConfigured.value = true;
-        connectionTested.value = true;
-      } catch {
-        // Credentials expired — show login form
-        isConfigured.value = false;
-      }
+      connectionTested.value = !injectedExpired.value;
     }
   } catch { /* not yet configured */ }
+  loadDomains();
   await loadTemplates();
   await loadSignatures();
 });
@@ -575,12 +614,82 @@ const editingSigId = ref(null);
 const sigMode = ref("richtext");
 const sigImageConverting = ref(false);
 const sigForm = ref({ name: "", content: "", is_default: false });
+const sigPreviewScale = ref(1.0);
 
 async function loadSignatures() {
   try {
     const { data } = await getSignatures();
     signatures.value = data;
   } catch { /* ignore */ }
+}
+
+// ── Preset domains ──────────────────
+
+const DOMAINS_KEY = "mailswift_preset_domains";
+const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
+const domains = ref([]);
+
+const domainModalVisible = ref(false);
+const domainEditIndex = ref(-1);
+const domainFormValue = ref("");
+
+function loadDomains() {
+  try {
+    const raw = localStorage.getItem(DOMAINS_KEY);
+    domains.value = raw ? JSON.parse(raw) : [...DEFAULT_DOMAINS];
+  } catch {
+    domains.value = [...DEFAULT_DOMAINS];
+  }
+}
+
+function saveDomains() {
+  localStorage.setItem(DOMAINS_KEY, JSON.stringify(domains.value));
+}
+
+function openDomainModal(index) {
+  domainEditIndex.value = index;
+  domainFormValue.value = index >= 0 ? domains.value[index] : "";
+  domainModalVisible.value = true;
+}
+
+function saveDomain() {
+  const val = domainFormValue.value.trim();
+  if (!val || !val.startsWith("@")) return;
+  if (domains.value.includes(val) && domains.value[domainEditIndex.value] !== val) {
+    message.warning("该域名已存在");
+    return;
+  }
+  if (domainEditIndex.value >= 0) {
+    domains.value[domainEditIndex.value] = val;
+  } else {
+    domains.value.push(val);
+  }
+  saveDomains();
+  domainModalVisible.value = false;
+  message.success(domainEditIndex.value >= 0 ? "已更新" : "已添加");
+}
+
+function removeDomain(index) {
+  dialog.warning({
+    title: "确认删除",
+    content: `确定要删除 ${domains.value[index]} 吗？`,
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: () => {
+      domains.value.splice(index, 1);
+      saveDomains();
+      message.success("已删除");
+    },
+  });
+}
+
+function measurePreviewScale() {
+  nextTick(() => {
+    const wrap = document.querySelector(".preview-box .sig-paste-wrap");
+    if (!wrap) return;
+    const h = wrap.scrollHeight;
+    sigPreviewScale.value = h > 200 ? Math.max(0.3, 200 / h) : 1.0;
+  });
 }
 
 async function onSigPaste(e) {
@@ -618,7 +727,41 @@ async function onSigPaste(e) {
     sigImageConverting.value = false;
   }
 
-  sigForm.value.content = doc.body.innerHTML;
+  // Vertically center all table cells (Outlook defaults to top)
+  doc.querySelectorAll("td").forEach((td) => {
+    td.style.verticalAlign = "middle";
+  });
+
+  // Remove empty <p> and <o:p> noise that Outlook injects, then tighten paragraph spacing
+  doc.querySelectorAll("p").forEach((p) => {
+    // Don't touch paragraphs that contain images
+    if (p.querySelector("img")) {
+      p.style.margin = "0 0 4px 0";
+      p.style.lineHeight = "1.4";
+      return;
+    }
+    if (!p.textContent.trim() || p.textContent === " ") {
+      p.remove();
+    } else {
+      p.style.margin = "0 0 4px 0";
+      p.style.lineHeight = "1.4";
+      p.querySelectorAll("o\\:p").forEach((op) => op.remove());
+    }
+  });
+
+  // Force all images to their natural resolution. Outlook wraps them in
+  // tables with hardcoded cell sizes; rather than chasing every attribute,
+  // we use !important to reclaim control.
+  doc.querySelectorAll("img").forEach((img) => {
+    img.removeAttribute("naturalheight");
+    img.removeAttribute("naturalwidth");
+    img.style.setProperty("width", "auto", "important");
+    img.style.setProperty("height", "auto", "important");
+    img.style.setProperty("max-width", "100%", "important");
+  });
+
+  sigForm.value.content = '<div class="sig-paste-wrap" style="max-width:600px;">' + doc.body.innerHTML + '</div>';
+  measurePreviewScale();
 }
 
 function openSignatureModal(sig) {
@@ -632,6 +775,7 @@ function openSignatureModal(sig) {
     sigMode.value = "richtext";
   }
   sigModalVisible.value = true;
+  if (sigForm.value.content) measurePreviewScale();
 }
 
 async function handleSaveSignature() {
@@ -789,6 +933,11 @@ async function handleDeleteSignature(id) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+
+.tab-header-hint {
+  font-size: 13px;
+  color: #86868b;
 }
 
 .filter-tabs {
@@ -1042,6 +1191,11 @@ async function handleDeleteSignature(id) {
 
 .preview-box :deep(p) {
   margin: 0 0 6px;
+}
+
+.preview-box :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 
 .preview-box :deep(a) {

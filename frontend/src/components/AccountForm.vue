@@ -107,7 +107,7 @@ function removeAccount(index) {
 
 // Sync when parent clears form data (keep-alive scenario)
 watch(() => props.modelValue?.accounts?.length, (len) => {
-  if (len === 0 && local.accounts.length > 0) {
+  if ((len === 0 || len === undefined) && local.accounts.length > 0) {
     suppressEmit = true;
     local.accounts.splice(0, local.accounts.length, {
       account: "", password: "", account_type: "", _key: ++keyCounter,

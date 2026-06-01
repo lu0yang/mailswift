@@ -445,7 +445,10 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     if data.signature_id:
         sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
         if sig and sig.content:
-            body_html += "\n<hr>\n" + sig.content
+            if "sig-paste-wrap" in sig.content:
+                body_html += "\n" + sig.content
+            else:
+                body_html += "\n<div style=\"max-width:600px;\">" + sig.content + "</div>"
 
     try:
         smtp_password = decrypt_password(s.encrypted_password)

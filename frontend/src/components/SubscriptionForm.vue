@@ -87,7 +87,7 @@ function removeSubscription(index) {
 
 // Sync when parent clears form data (keep-alive scenario)
 watch(() => props.modelValue?.subscriptions?.length, (len) => {
-  if (len === 0 && local.subscriptions.length > 0) {
+  if ((len === 0 || len === undefined) && local.subscriptions.length > 0) {
     suppressEmit = true;
     local.subscriptions.splice(0, local.subscriptions.length, {
       subscription_id: "", subscription_name: "", _key: ++keyCounter,

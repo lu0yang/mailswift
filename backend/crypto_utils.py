@@ -1,4 +1,5 @@
 import os
+import sys
 import base64
 import logging
 from pathlib import Path
@@ -10,7 +11,11 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 SALT = b"mail-tool-fixed-salt-v1"
-MACHINE_ID_FILE = Path(__file__).resolve().parent / ".machine_id"
+
+if getattr(sys, 'frozen', False):
+    MACHINE_ID_FILE = Path(sys.executable).parent / ".machine_id"
+else:
+    MACHINE_ID_FILE = Path(__file__).resolve().parent / ".machine_id"
 logger = logging.getLogger(__name__)
 
 

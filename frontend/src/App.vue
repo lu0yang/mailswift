@@ -78,6 +78,8 @@ async function refreshAccount() {
 }
 
 provide("refreshAccount", refreshAccount);
+provide("accountEmail", accountEmail);
+provide("accountExpired", accountExpired);
 
 onMounted(() => {
   refreshAccount();
