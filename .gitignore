@@ -17,6 +17,9 @@ frontend/dist/
 # Database (local data)
 *.db
 
+# Machine-specific key (generated on first run)
+backend/.machine_id
+
 # OS
 .DS_Store
 Thumbs.db
