@@ -81,6 +81,18 @@ export function encodeImage(url) {
   return req("/encode-image", { method: "POST", body: { url } });
 }
 
+export function getAccounts() {
+  return req("/accounts");
+}
+
+export function switchAccount(id) {
+  return req(`/accounts/${id}/switch`, { method: "POST" });
+}
+
+export function deleteAccount(id) {
+  return req(`/accounts/${id}`, { method: "DELETE" });
+}
+
 export function resetApp() {
   return req("/reset", { method: "POST" });
 }

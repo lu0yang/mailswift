@@ -79,6 +79,7 @@
             size="small"
             class="pill-auto"
             @keyup.enter.prevent="addRecipientTag"
+            @blur="addRecipientTag"
           />
         </div>
         <span v-if="recipientError" class="field-error">{{ recipientError }}</span>
@@ -108,6 +109,7 @@
             size="small"
             class="pill-auto"
             @keyup.enter.prevent="addCcTag"
+            @blur="addCcTag"
           />
         </div>
         <span v-if="ccError" class="field-error">{{ ccError }}</span>
@@ -139,6 +141,24 @@
 
     <!-- Preview modal -->
     <n-modal v-model:show="previewVisible" preset="card" title="邮件预览" style="max-width:720px">
+      <div v-if="recipientTags.length || ccTags.length || subject" class="preview-meta">
+        <div v-if="recipientTags.length" class="preview-meta-row">
+          <span class="preview-meta-label">收件人</span>
+          <span class="preview-meta-val">
+            <span v-for="(addr, i) in recipientTags" :key="i" class="preview-pill">{{ addr }}</span>
+          </span>
+        </div>
+        <div v-if="ccTags.length" class="preview-meta-row">
+          <span class="preview-meta-label">抄送</span>
+          <span class="preview-meta-val">
+            <span v-for="(addr, i) in ccTags" :key="i" class="preview-pill">{{ addr }}</span>
+          </span>
+        </div>
+        <div v-if="subject" class="preview-meta-row">
+          <span class="preview-meta-label">标题</span>
+          <span class="preview-meta-val preview-meta-subject">{{ subject }}</span>
+        </div>
+      </div>
       <div v-if="body" class="preview-body" v-html="previewHtml"></div>
       <div v-else class="preview-empty">暂无正文内容</div>
       <div v-if="attachments.length" class="preview-attachments">
@@ -162,23 +182,28 @@
     </div>
 
     <!-- Send -->
-    <n-button
-      type="primary"
-      size="large"
-      :loading="sending"
-      :disabled="!canSend"
-      block
-      @click="handleSend"
-    >
-      <template #icon><SvgIcon name="send" /></template>
-      发送邮件
-    </n-button>
+    <n-tooltip :disabled="canSend" placement="top">
+      <template #trigger>
+        <n-button
+          type="primary"
+          size="large"
+          :loading="sending"
+          :disabled="!canSend"
+          block
+          @click="handleSend"
+        >
+          <template #icon><SvgIcon name="send" /></template>
+          发送邮件
+        </n-button>
+      </template>
+      <div v-for="h in sendHints" :key="h" class="send-hint-line">{{ h }}</div>
+    </n-tooltip>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount } from "vue";
-import { NInput, NSelect, NButton, NModal, NAutoComplete, useMessage } from "naive-ui";
+import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount, inject } from "vue";
+import { NInput, NSelect, NButton, NModal, NAutoComplete, NTooltip, useMessage } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
 import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
@@ -186,6 +211,8 @@ import SubscriptionForm from "@/components/SubscriptionForm.vue";
 import { sendEmail, getTemplates, getSignatures, getHistory } from "@/api";
 
 const message = useMessage();
+const accountEmail = inject("accountEmail", ref(""));
+const accountExpired = inject("accountExpired", ref(false));
 const emailType = ref("account");
 const selectedTemplateId = ref(null);
 const selectedSignatureId = ref(null);
@@ -305,7 +332,10 @@ const templateOptions = computed(() =>
 );
 
 const signatureOptions = computed(() =>
-  signatures.value.map((s) => ({ label: s.name, value: s.id }))
+  signatures.value.map((s) => ({
+    label: s.is_default ? s.name + " （默认）" : s.name,
+    value: s.id,
+  }))
 );
 
 const previewHtml = computed(() => {
@@ -319,23 +349,43 @@ const previewHtml = computed(() => {
   return html;
 });
 
-const canSend = computed(() => {
-  if (!subject.value || !recipientTags.value.length) return false;
+const sendHints = computed(() => {
+  const hints = [];
+  if (!accountEmail.value) hints.push("请先在设置中配置邮箱凭据");
+  else if (accountExpired.value) hints.push("凭据已过期，请更新密码");
+  if (!subject.value) hints.push("请填写邮件标题");
+  if (!body.value.trim()) hints.push("请填写邮件正文");
+  if (!recipientTags.value.length) hints.push("请添加至少一个收件人");
+  else if (recipientError.value) hints.push(recipientError.value);
+  if (ccError.value) hints.push(ccError.value);
   if (emailType.value === "account") {
-    const accounts = formData.value.accounts;
-    return accounts && accounts.length > 0 && accounts.some((a) => a.account && a.password && a.account_type);
+    const accts = formData.value.accounts;
+    if (!accts || !accts.length) hints.push("请至少添加一条账号信息");
+    else if (!accts.some((a) => a.account && a.password && a.account_type)) hints.push("请完整填写至少一条账号（账号、密码、类型）");
+  } else {
+    const subs = formData.value.subscriptions;
+    if (!subs || !subs.length) hints.push("请至少添加一条订阅信息");
+    else if (!subs.some((s) => s.subscription_id || s.subscription_name)) hints.push("请填写至少一条订阅（ID 或名称）");
   }
-  const subs = formData.value.subscriptions;
-  return subs && subs.length > 0 && subs.some((s) => s.subscription_id || s.subscription_name);
+  return hints;
 });
 
+const canSend = computed(() => sendHints.value.length === 0);
+
 // ── Lifecycle ───────────────────────
+
+function autoSelectDefaultSignature() {
+  if (selectedSignatureId.value) return; // already selected
+  const def = signatures.value.find((s) => s.is_default);
+  if (def) selectedSignatureId.value = def.id;
+}
 
 onMounted(async () => {
   try {
     const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()]);
     templates.value = tRes.data;
     signatures.value = sRes.data;
+    autoSelectDefaultSignature();
   } catch { /* ignore */ }
   loadHistoryEmails();
   loadDraft();
@@ -346,6 +396,7 @@ onActivated(async () => {
     const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()]);
     templates.value = tRes.data;
     signatures.value = sRes.data;
+    autoSelectDefaultSignature();
     if (selectedTemplateId.value) {
       const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
       if (t) {
@@ -470,6 +521,8 @@ function switchType(type) {
   userEditedBody.value = false;
   formData.value = {};
   loadDraft();
+  selectedSignatureId.value = null;
+  autoSelectDefaultSignature();
 }
 
 function handleClear() {
@@ -499,6 +552,8 @@ function onTemplateChange(id) {
     bodySource.value = t.content;
     userEditedBody.value = false;
     body.value = renderTemplateContent(t.content);
+    selectedSignatureId.value = null;
+    autoSelectDefaultSignature();
   }
 }
 
@@ -866,6 +921,50 @@ function clearDraft() {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 10px;
+}
+
+.preview-meta {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+
+.preview-meta-row {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.preview-meta-label {
+  color: #86868b;
+  flex-shrink: 0;
+  min-width: 48px;
+}
+
+.preview-meta-val {
+  color: #1d1d1f;
+}
+
+.preview-meta-subject {
+  font-weight: 600;
+}
+
+.preview-pill {
+  display: inline-block;
+  padding: 1px 10px;
+  margin: 2px 4px 2px 0;
+  background: #e6f4ea;
+  color: #1e8e3e;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.send-hint-line {
+  font-size: 13px;
+  line-height: 1.8;
+  color: #fff;
 }
 
 .preview-body {

@@ -32,6 +32,8 @@ class Settings(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     email_address = Column(String(255), default="")
     encrypted_password = Column(Text, default="")
+    label = Column(String(100), default="")
+    is_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 

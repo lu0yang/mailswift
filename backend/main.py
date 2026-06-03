@@ -43,6 +43,16 @@ def _migrate_schema(db: Session):
         if "template_id" not in history_cols:
             db.execute(sa.text("ALTER TABLE email_history ADD COLUMN template_id INTEGER"))
 
+    # settings table — add account-switching columns
+    if "settings" in insp.get_table_names():
+        settings_cols = {c["name"] for c in insp.get_columns("settings")}
+        if "label" not in settings_cols:
+            db.execute(sa.text("ALTER TABLE settings ADD COLUMN label VARCHAR(100) DEFAULT ''"))
+        if "is_active" not in settings_cols:
+            db.execute(sa.text("ALTER TABLE settings ADD COLUMN is_active BOOLEAN DEFAULT 0"))
+            # First-time migration: mark the existing account as active
+            db.execute(sa.text("UPDATE settings SET is_active = 1 WHERE email_address != '' AND is_active = 0"))
+
     # settings table — drop legacy smtp columns (cleanup after EWS migration)
     if "settings" in insp.get_table_names():
         settings_cols = {c["name"] for c in insp.get_columns("settings")}
@@ -97,12 +107,22 @@ app.add_middleware(
 class SettingsUpdate(BaseModel):
     email_address: str = ""
     password: str = ""
+    label: str = ""
 
 
 class SettingsResponse(BaseModel):
+    id: int
     email_address: str
     password_masked: str
+    label: str
     updated_at: str | None
+
+
+class AccountListItem(BaseModel):
+    id: int
+    email_address: str
+    label: str
+    is_active: bool
 
 
 class AccountItem(BaseModel):
@@ -194,34 +214,46 @@ class SignatureResponse(BaseModel):
 # ── Settings APIs ───────────────────────────────────────
 
 
+def _get_active_settings(db: Session) -> Settings | None:
+    return db.query(Settings).filter(Settings.is_active == True).first()
+
+
 @app.get("/api/settings", response_model=SettingsResponse)
 def get_settings(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+    s = _get_active_settings(db)
     if not s:
         return SettingsResponse(
-            email_address="",
-            password_masked="",
-            updated_at=None,
+            id=0, email_address="", password_masked="", label="", updated_at=None,
         )
     return SettingsResponse(
+        id=s.id,
         email_address=s.email_address or "",
         password_masked="********" if s.encrypted_password else "",
+        label=s.label or "",
         updated_at=s.updated_at.isoformat() if s.updated_at else None,
     )
 
 
 @app.post("/api/settings")
 def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+    # Find existing account with same email, or create a new one
+    s = db.query(Settings).filter(Settings.email_address == payload.email_address).first()
     if not s:
         s = Settings()
         db.add(s)
+        s.is_active = False  # will be set to True below
     s.email_address = payload.email_address
     if payload.password:
         s.encrypted_password = encrypt_password(payload.password)
+    s.label = payload.label or payload.email_address
     s.updated_at = datetime.now(timezone(timedelta(hours=8)))
+    # Make this the active account
+    db.query(Settings).filter(Settings.is_active == True).update(
+        {"is_active": False}, synchronize_session=False
+    )
+    s.is_active = True
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "id": s.id}
 
 
 class TestConnectionRequest(BaseModel):
@@ -231,7 +263,7 @@ class TestConnectionRequest(BaseModel):
 
 @app.post("/api/settings/test-connection")
 def test_connection(data: TestConnectionRequest | None = None, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+    s = _get_active_settings(db)
 
     # Use request body params if provided, otherwise fall back to saved settings
     if data and data.email_address and data.password:
@@ -373,7 +405,9 @@ def list_signatures(db: Session = Depends(get_db)):
 @app.post("/api/signatures", response_model=SignatureResponse)
 def create_signature(data: SignatureCreate, db: Session = Depends(get_db)):
     if data.is_default:
-        db.query(Signature).filter(Signature.is_default == True).update({"is_default": False})  # noqa: E712
+        db.query(Signature).filter(Signature.is_default == True).update(  # noqa: E712
+            {"is_default": False}, synchronize_session=False
+        )
     s = Signature(name=data.name, content=data.content, is_default=data.is_default)
     db.add(s)
     db.commit()
@@ -391,7 +425,9 @@ def update_signature(signature_id: int, data: SignatureUpdate, db: Session = Dep
     if not s:
         raise HTTPException(status_code=404, detail="签名不存在")
     if data.is_default:
-        db.query(Signature).filter(Signature.is_default == True).update({"is_default": False})  # noqa: E712
+        db.query(Signature).filter(Signature.is_default == True).update(  # noqa: E712
+            {"is_default": False}, synchronize_session=False
+        )
     s.name = data.name
     s.content = data.content
     s.is_default = data.is_default
@@ -426,7 +462,7 @@ def _strip_html(html: str) -> str:
 
 @app.post("/api/send")
 def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+    s = _get_active_settings(db)
     if not s or not s.email_address or not s.encrypted_password:
         raise HTTPException(status_code=400, detail="请先在设置中配置邮箱凭据")
 
@@ -538,13 +574,15 @@ def delete_history(record_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/reset")
 def reset_app(db: Session = Depends(get_db)):
-    """Reset the application to factory defaults: clear credentials,
-    delete all templates/signatures/history, and re-create default templates."""
-    # Clear credentials
-    s = db.query(Settings).first()
+    """Reset the application to factory defaults: clear credentials from the
+    active account, delete all templates/signatures/history, and re-create
+    default templates."""
+    # Clear active account credentials
+    s = _get_active_settings(db)
     if s:
         s.encrypted_password = ""
         s.email_address = ""
+        s.label = ""
         s.updated_at = datetime.now(timezone(timedelta(hours=8)))
         db.flush()
 
@@ -557,6 +595,46 @@ def reset_app(db: Session = Depends(get_db)):
     # Re-create default templates
     _migrate_templates(db)
 
+    return {"ok": True}
+
+
+# ── Account management ──────────────────────────────────
+
+
+@app.get("/api/accounts", response_model=list[AccountListItem])
+def list_accounts(db: Session = Depends(get_db)):
+    items = db.query(Settings).filter(Settings.email_address != "").order_by(Settings.updated_at.desc()).all()
+    return [
+        AccountListItem(
+            id=a.id,
+            email_address=a.email_address or "",
+            label=a.label or a.email_address or "",
+            is_active=a.is_active,
+        )
+        for a in items
+    ]
+
+
+@app.post("/api/accounts/{account_id}/switch")
+def switch_account(account_id: int, db: Session = Depends(get_db)):
+    a = db.query(Settings).filter(Settings.id == account_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="账户不存在")
+    db.query(Settings).filter(Settings.is_active == True).update(
+        {"is_active": False}, synchronize_session=False
+    )
+    a.is_active = True
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/accounts/{account_id}")
+def delete_account(account_id: int, db: Session = Depends(get_db)):
+    a = db.query(Settings).filter(Settings.id == account_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="账户不存在")
+    db.delete(a)
+    db.commit()
     return {"ok": True}
 
 

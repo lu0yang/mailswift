@@ -8,10 +8,32 @@
             <span class="logo" @click="$router.push('/')">MailSwift</span>
           </div>
           <div class="header-right">
-            <div class="account-status" @click="$router.push('/settings')">
-              <span class="status-dot" :class="accountClass"></span>
-              <span class="status-text">{{ accountLabel }}</span>
-            </div>
+            <n-popover trigger="click" placement="bottom-end" :width="260">
+              <template #trigger>
+                <div class="account-status">
+                  <span class="status-dot" :class="accountClass"></span>
+                  <span class="status-text">{{ accountLabel }}</span>
+                </div>
+              </template>
+              <div class="account-switcher">
+                <div class="switcher-title">切换账户</div>
+                <div
+                  v-for="acct in accounts"
+                  :key="acct.id"
+                  class="switcher-item"
+                  :class="{ active: acct.id === accountId }"
+                  @click="handleSwitchAccount(acct)"
+                >
+                  <span class="switcher-dot" :class="acct.is_active ? 'active-dot' : ''"></span>
+                  <span class="switcher-email">{{ acct.email_address }}</span>
+                  <span v-if="acct.id === accountId" class="switcher-check">✓</span>
+                </div>
+                <div v-if="!accounts.length" class="switcher-empty">暂无已保存的账户</div>
+                <div class="switcher-footer">
+                  <n-button text size="tiny" @click="$router.push('/settings')">管理账户</n-button>
+                </div>
+              </div>
+            </n-popover>
             <n-button text @click="$router.push('/settings')">
               <template #icon><SvgIcon name="settings" /></template>
             </n-button>
@@ -35,13 +57,16 @@
 
 <script setup>
 import { ref, computed, provide, onMounted } from "vue";
-import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
+import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NPopover } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
-import { getSettings, testConnection } from "@/api";
+import { getSettings, testConnection, getAccounts, switchAccount } from "@/api";
 
 const accountEmail = ref("");
 const accountExpired = ref(false);
+const accountId = ref(0);
+const accounts = ref([]);
+const switching = ref(false);
 
 const accountClass = computed(() => {
   if (!accountEmail.value) return "none";
@@ -60,7 +85,7 @@ async function refreshAccount() {
     const { data } = await getSettings();
     if (data.email_address && data.password_masked) {
       accountEmail.value = data.email_address;
-      // silently verify credentials are still valid
+      accountId.value = data.id || 0;
       try {
         await testConnection();
         accountExpired.value = false;
@@ -69,12 +94,30 @@ async function refreshAccount() {
       }
     } else {
       accountEmail.value = "";
+      accountId.value = 0;
       accountExpired.value = false;
     }
   } catch {
     accountEmail.value = "";
+    accountId.value = 0;
     accountExpired.value = false;
   }
+  // Also load all accounts for the switcher
+  try {
+    const { data } = await getAccounts();
+    accounts.value = data || [];
+  } catch { accounts.value = []; }
+}
+
+async function handleSwitchAccount(acct) {
+  if (acct.id === accountId.value || switching.value) return;
+  switching.value = true;
+  try {
+    await switchAccount(acct.id);
+    await refreshAccount();
+    window.dispatchEvent(new Event("account-changed"));
+  } catch { /* ignore */ }
+  switching.value = false;
 }
 
 provide("refreshAccount", refreshAccount);
@@ -199,5 +242,72 @@ body {
   max-width: 720px;
   margin: 0 auto;
   width: 100%;
+}
+
+.account-switcher {
+  padding: 4px 0;
+}
+
+.switcher-title {
+  font-size: 13px;
+  color: #86868b;
+  padding: 4px 12px 8px;
+}
+
+.switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.switcher-item:hover {
+  background: #f5f5f7;
+}
+
+.switcher-item.active {
+  background: #e8f0fe;
+}
+
+.switcher-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d0d0d0;
+  flex-shrink: 0;
+}
+
+.switcher-dot.active-dot {
+  background: #34c759;
+}
+
+.switcher-email {
+  font-size: 14px;
+  color: #1d1d1f;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-check {
+  color: #0071e3;
+  font-size: 14px;
+}
+
+.switcher-empty {
+  font-size: 13px;
+  color: #86868b;
+  padding: 12px;
+  text-align: center;
+}
+
+.switcher-footer {
+  border-top: 1px solid #f0f0f0;
+  margin-top: 4px;
+  padding: 8px 12px 0;
 }
 </style>

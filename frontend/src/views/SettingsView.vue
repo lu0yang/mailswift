@@ -17,8 +17,9 @@
               <span class="configured-dot"></span>
               已登录 {{ emailAddress }}
             </div>
-            <div v-if="!showPasswordUpdate" class="update-link" @click="showPasswordUpdate = true">
-              更新密码
+            <div v-if="!showPasswordUpdate && !showAddAccount" class="account-actions">
+              <n-button size="small" @click="showPasswordUpdate = true">更新密码</n-button>
+              <n-button size="small" type="primary" @click="startAddAccount">添加账户</n-button>
             </div>
             <template v-if="showPasswordUpdate">
               <div class="form-field">
@@ -34,6 +35,37 @@
                 </n-button>
               </div>
               <div v-if="!connectionTested && password" class="test-hint">
+                请先通过连接测试，成功后方可保存
+              </div>
+            </template>
+
+            <!-- Add new account form -->
+            <template v-if="showAddAccount">
+              <div class="form-field">
+                <label class="field-label">新邮箱地址</label>
+                <n-auto-complete
+                  v-model:value="newEmail"
+                  :options="newEmailOptions"
+                  :filterable="false"
+                  placeholder="输入邮箱，输入 @ 后选择域名"
+                  size="large"
+                  clearable
+                />
+              </div>
+              <div class="form-field">
+                <label class="field-label">密码</label>
+                <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入密码" size="large" />
+              </div>
+              <div class="btn-row">
+                <n-button size="large" @click="showAddAccount = false">取消</n-button>
+                <n-button size="large" :loading="testing" @click="handleTest">
+                  测试连接
+                </n-button>
+                <n-button type="primary" size="large" :loading="saving" :disabled="!connectionTested" @click="handleSaveNewAccount">
+                  保存账户
+                </n-button>
+              </div>
+              <div v-if="!connectionTested && (emailAddress || password)" class="test-hint">
                 请先通过连接测试，成功后方可保存
               </div>
             </template>
@@ -61,6 +93,18 @@
               请先通过连接测试，成功后方可保存凭据
             </div>
           </template>
+
+          <!-- Saved accounts list -->
+          <div v-if="savedAccounts.length" class="saved-accounts">
+            <div class="saved-title">已保存的账户</div>
+            <div v-for="acct in savedAccounts" :key="acct.id" class="saved-row">
+              <div class="saved-info">
+                <span class="saved-email">{{ acct.email_address }}</span>
+                <span v-if="acct.is_active" class="saved-active">当前</span>
+              </div>
+              <n-button text size="tiny" type="error" @click="handleDeleteAccount(acct.id)">删除</n-button>
+            </div>
+          </div>
         </div>
       </n-tab-pane>
 
@@ -291,7 +335,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, inject, nextTick } from "vue";
 import {
-  NInput, NSelect, NButton, NTabs, NTabPane,
+  NInput, NSelect, NButton, NTabs, NTabPane, NAutoComplete,
   NModal, NCheckbox, useMessage, useDialog,
 } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
@@ -300,7 +344,7 @@ import {
   getSettings, updateSettings, testConnection,
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
-  resetApp, encodeImage,
+  resetApp, encodeImage, getAccounts, deleteAccount,
 } from "@/api";
 
 const message = useMessage();
@@ -319,6 +363,60 @@ const testing = ref(false);
 const connectionTested = ref(false);
 const isConfigured = ref(false);
 const showPasswordUpdate = ref(false);
+const showAddAccount = ref(false);
+const savedAccounts = ref([]);
+
+const newEmail = ref("");
+
+const newEmailOptions = computed(() => {
+  const val = newEmail.value || "";
+  const atIdx = val.indexOf("@");
+  if (atIdx >= 0) {
+    const afterAt = val.slice(atIdx);
+    return domains.value.filter((d) => d.startsWith(afterAt));
+  }
+  return [];
+});
+
+watch(newEmail, (val, oldVal) => {
+  if (!val || !oldVal) return;
+  const oldAt = oldVal.indexOf("@");
+  if (oldAt > 0 && val.startsWith("@") && domains.value.includes(val)) {
+    newEmail.value = oldVal.slice(0, oldAt) + val;
+  }
+});
+
+function startAddAccount() {
+  showAddAccount.value = true;
+  showPasswordUpdate.value = false;
+  password.value = "";
+  newEmail.value = "";
+  connectionTested.value = false;
+}
+
+async function loadSavedAccounts() {
+  try {
+    const { data } = await getAccounts();
+    savedAccounts.value = data || [];
+  } catch { savedAccounts.value = []; }
+}
+
+async function handleDeleteAccount(id) {
+  dialog.warning({
+    title: "确认删除",
+    content: "确定要删除这个账户吗？",
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        await deleteAccount(id);
+        message.success("已删除");
+        await loadSavedAccounts();
+        refreshAccount();
+      } catch { message.error("删除失败"); }
+    },
+  });
+}
 
 onMounted(async () => {
   try {
@@ -334,6 +432,15 @@ onMounted(async () => {
   loadDomains();
   await loadTemplates();
   await loadSignatures();
+  loadSavedAccounts();
+
+  // Listen for account switches from the header
+  window.addEventListener("account-changed", async () => {
+    const { data } = await getSettings();
+    emailAddress.value = data.email_address || "";
+    isConfigured.value = !!(data.email_address && data.password_masked);
+    loadSavedAccounts();
+  });
 });
 
 // Reset test state when password changes
@@ -358,6 +465,34 @@ async function handleSave() {
     password.value = "";
     connectionTested.value = false;
     refreshAccount();
+    loadSavedAccounts();
+  } catch (err) {
+    message.error(err.response?.data?.detail || "保存失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function handleSaveNewAccount() {
+  if (!connectionTested.value) {
+    message.warning("请先通过连接测试再保存");
+    return;
+  }
+  saving.value = true;
+  try {
+    const addr = newEmail.value;
+    await updateSettings({
+      email_address: addr,
+      password: password.value,
+    });
+    message.success("新账户已添加并切换");
+    showAddAccount.value = false;
+    password.value = "";
+    connectionTested.value = false;
+    emailAddress.value = addr;
+    isConfigured.value = true;
+    refreshAccount();
+    loadSavedAccounts();
   } catch (err) {
     message.error(err.response?.data?.detail || "保存失败");
   } finally {
@@ -366,14 +501,15 @@ async function handleSave() {
 }
 
 async function handleTest() {
-  if (!emailAddress.value || !password.value) {
+  const email = showAddAccount.value ? newEmail.value : emailAddress.value;
+  if (!email || !password.value) {
     message.warning("请先填写邮箱地址和密码");
     return;
   }
   testing.value = true;
   try {
     await testConnection({
-      email_address: emailAddress.value,
+      email_address: email,
       password: password.value,
     });
     connectionTested.value = true;
@@ -894,6 +1030,12 @@ async function handleDeleteSignature(id) {
   flex-shrink: 0;
 }
 
+.account-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .update-link {
   font-size: 14px;
   color: #0071e3;
@@ -904,6 +1046,46 @@ async function handleDeleteSignature(id) {
 .update-link:hover {
   color: #0077ed;
   text-decoration: underline;
+}
+
+.saved-accounts {
+  border-top: 1px solid #f0f0f0;
+  margin-top: 24px;
+  padding-top: 20px;
+}
+
+.saved-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+  margin-bottom: 10px;
+}
+
+.saved-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f8f8f8;
+}
+
+.saved-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saved-email {
+  font-size: 14px;
+  color: #1d1d1f;
+}
+
+.saved-active {
+  font-size: 11px;
+  padding: 1px 6px;
+  background: #e6f4ea;
+  color: #1e8e3e;
+  border-radius: 4px;
 }
 
 .reset-area {
