@@ -20,17 +20,33 @@
       >
         <div class="account-index">{{ index + 1 }}</div>
         <div class="account-fields">
-          <n-input
-            v-model:value="acct.account"
-            placeholder="账号"
-            size="large"
-          />
+          <div class="field-wrapper">
+            <n-input
+              v-model:value="acct.account"
+              placeholder="账号"
+              size="large"
+              :input-props="{ autocomplete: 'off' }"
+              @focus="openDropdown(index)"
+              @blur="closeDropdownDelayed()"
+            />
+            <div v-if="dropdownRow === index && filteredAccountHistory.length" class="history-dropdown">
+              <div
+                v-for="item in filteredAccountHistory"
+                :key="item"
+                class="history-dropdown-item"
+                @mousedown.prevent="selectAccount(item)"
+              >
+                {{ item }}
+              </div>
+            </div>
+          </div>
           <n-input
             v-model:value="acct.password"
             type="password"
             show-password-on="click"
             placeholder="密码"
             size="large"
+            :input-props="{ autocomplete: 'new-password' }"
           />
           <n-select
             v-model:value="acct.account_type"
@@ -48,7 +64,7 @@
 </template>
 
 <script setup>
-import { reactive, watch, nextTick } from "vue";
+import { reactive, computed, watch, nextTick, ref, onMounted, onBeforeUnmount } from "vue";
 import { NInput, NSelect, NButton } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
 
@@ -115,6 +131,59 @@ watch(() => props.modelValue?.accounts?.length, (len) => {
     nextTick(() => { suppressEmit = false; });
   }
 });
+
+// ── Account name history dropdown ────
+
+const ACCOUNT_HISTORY_KEY = "mailswift_history_account_name";
+const accountHistory = ref([]);
+const dropdownRow = ref(-1);
+
+function loadAccountHistory() {
+  try {
+    const raw = localStorage.getItem(ACCOUNT_HISTORY_KEY);
+    accountHistory.value = raw ? JSON.parse(raw) : [];
+  } catch { accountHistory.value = []; }
+}
+
+const filteredAccountHistory = computed(() => {
+  if (dropdownRow.value < 0) return [];
+  const acct = local.accounts[dropdownRow.value];
+  if (!acct) return [];
+  const val = (acct.account || "").trim().toLowerCase();
+  if (!val) return accountHistory.value;
+  return accountHistory.value.filter((s) => s.toLowerCase().includes(val));
+});
+
+let hideTimer = null;
+function openDropdown(index) {
+  clearTimeout(hideTimer);
+  loadAccountHistory();
+  dropdownRow.value = index;
+}
+function closeDropdownDelayed() {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => { dropdownRow.value = -1; }, 200);
+}
+function selectAccount(item) {
+  if (dropdownRow.value >= 0) {
+    local.accounts[dropdownRow.value].account = item;
+  }
+  dropdownRow.value = -1;
+}
+
+function onDocClick(e) {
+  if (e.target.closest(".field-wrapper")) return;
+  dropdownRow.value = -1;
+}
+
+onMounted(() => {
+  loadAccountHistory();
+  document.addEventListener("click", onDocClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", onDocClick);
+});
 </script>
 
 <style scoped>
@@ -172,6 +241,37 @@ watch(() => props.modelValue?.accounts?.length, (len) => {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
+}
+
+.field-wrapper {
+  position: relative;
+}
+
+.history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-dropdown-item {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1d1d1f;
+  transition: background 0.1s;
+}
+
+.history-dropdown-item:hover {
+  background: #f0f7ff;
 }
 
 .list-enter-active,

@@ -20,16 +20,36 @@
       >
         <div class="sub-index">{{ index + 1 }}</div>
         <div class="sub-fields">
-          <n-input
-            v-model:value="sub.subscription_id"
-            placeholder="订阅 ID"
-            size="large"
-          />
-          <n-input
-            v-model:value="sub.subscription_name"
-            placeholder="订阅名称"
-            size="large"
-          />
+          <div class="field-wrapper">
+            <n-input
+              v-model:value="sub.subscription_id"
+              placeholder="订阅 ID"
+              size="large"
+              :input-props="{ autocomplete: 'off' }"
+              @focus="openDropdown(index, 'sub_id')"
+              @blur="closeDropdownDelayed()"
+            />
+            <div v-if="dropdownRow === index && dropdownField === 'sub_id' && filteredSubIdHistory.length" class="history-dropdown">
+              <div v-for="item in filteredSubIdHistory" :key="item" class="history-dropdown-item" @mousedown.prevent="selectSubId(item)">
+                {{ item }}
+              </div>
+            </div>
+          </div>
+          <div class="field-wrapper">
+            <n-input
+              v-model:value="sub.subscription_name"
+              placeholder="订阅名称"
+              size="large"
+              :input-props="{ autocomplete: 'off' }"
+              @focus="openDropdown(index, 'sub_name')"
+              @blur="closeDropdownDelayed()"
+            />
+            <div v-if="dropdownRow === index && dropdownField === 'sub_name' && filteredSubNameHistory.length" class="history-dropdown">
+              <div v-for="item in filteredSubNameHistory" :key="item" class="history-dropdown-item" @mousedown.prevent="selectSubName(item)">
+                {{ item }}
+              </div>
+            </div>
+          </div>
         </div>
         <n-button text type="error" size="small" @click="removeSubscription(index)">
           <template #icon><SvgIcon name="close" /></template>
@@ -40,7 +60,7 @@
 </template>
 
 <script setup>
-import { reactive, watch, nextTick } from "vue";
+import { reactive, computed, watch, nextTick, ref, onMounted, onBeforeUnmount } from "vue";
 import { NInput, NButton } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
 
@@ -94,6 +114,72 @@ watch(() => props.modelValue?.subscriptions?.length, (len) => {
     });
     nextTick(() => { suppressEmit = false; });
   }
+});
+
+// ── Subscription field history dropdown ────
+
+const SUB_ID_HISTORY_KEY = "mailswift_history_subscription_id";
+const SUB_NAME_HISTORY_KEY = "mailswift_history_subscription_name";
+const subIdHistory = ref([]);
+const subNameHistory = ref([]);
+const dropdownRow = ref(-1);
+const dropdownField = ref("");
+
+function loadHistories() {
+  try {
+    subIdHistory.value = JSON.parse(localStorage.getItem(SUB_ID_HISTORY_KEY) || "[]");
+    subNameHistory.value = JSON.parse(localStorage.getItem(SUB_NAME_HISTORY_KEY) || "[]");
+  } catch { subIdHistory.value = []; subNameHistory.value = []; }
+}
+
+const filteredSubIdHistory = computed(() => {
+  const acct = dropdownRow.value >= 0 ? local.subscriptions[dropdownRow.value] : null;
+  if (!acct) return [];
+  const val = (acct.subscription_id || "").trim().toLowerCase();
+  if (!val) return subIdHistory.value;
+  return subIdHistory.value.filter((s) => s.toLowerCase().includes(val));
+});
+
+const filteredSubNameHistory = computed(() => {
+  const acct = dropdownRow.value >= 0 ? local.subscriptions[dropdownRow.value] : null;
+  if (!acct) return [];
+  const val = (acct.subscription_name || "").trim().toLowerCase();
+  if (!val) return subNameHistory.value;
+  return subNameHistory.value.filter((s) => s.toLowerCase().includes(val));
+});
+
+let hideTimer = null;
+function openDropdown(index, field) {
+  clearTimeout(hideTimer);
+  loadHistories();
+  dropdownRow.value = index;
+  dropdownField.value = field;
+}
+function closeDropdownDelayed() {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => { dropdownRow.value = -1; }, 200);
+}
+function selectSubId(item) {
+  if (dropdownRow.value >= 0) local.subscriptions[dropdownRow.value].subscription_id = item;
+  dropdownRow.value = -1;
+}
+function selectSubName(item) {
+  if (dropdownRow.value >= 0) local.subscriptions[dropdownRow.value].subscription_name = item;
+  dropdownRow.value = -1;
+}
+
+function onDocClick(e) {
+  if (e.target.closest(".field-wrapper")) return;
+  dropdownRow.value = -1;
+}
+
+onMounted(() => {
+  loadHistories();
+  document.addEventListener("click", onDocClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", onDocClick);
 });
 </script>
 
@@ -152,6 +238,37 @@ watch(() => props.modelValue?.subscriptions?.length, (len) => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.field-wrapper {
+  position: relative;
+}
+
+.history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-dropdown-item {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1d1d1f;
+  transition: background 0.1s;
+}
+
+.history-dropdown-item:hover {
+  background: #f0f7ff;
 }
 
 .list-enter-active,

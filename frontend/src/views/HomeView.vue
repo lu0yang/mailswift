@@ -2,10 +2,16 @@
   <div class="home">
     <div class="title-row">
       <div class="page-title">发送邮件</div>
-      <n-button text type="error" size="small" @click="handleClear">
-        <template #icon><SvgIcon name="trash" /></template>
-        一键清理
-      </n-button>
+      <div class="title-actions">
+        <n-button text size="small" @click="handleSaveDraft" :disabled="!isDirty">
+          <template #icon><SvgIcon name="save" /></template>
+          暂存草稿
+        </n-button>
+        <n-button text type="error" size="small" @click="handleClear">
+          <template #icon><SvgIcon name="trash" /></template>
+          一键清理
+        </n-button>
+      </div>
     </div>
 
     <!-- Email type switcher -->
@@ -50,67 +56,122 @@
     <!-- Subject & Recipient -->
     <div class="form-field">
       <label class="field-label">邮件标题 *</label>
-      <n-input v-model:value="subject" placeholder="邮件标题" size="large" clearable />
+      <div class="field-wrapper">
+        <n-input
+          v-model:value="subject"
+          placeholder="邮件标题"
+          size="large"
+          clearable
+          :input-props="{ autocomplete: 'off' }"
+          @focus="cancelDropdownHide(); subjectDropdownShow = filteredSubjectHistory.length > 0"
+          @blur="hideDropdownWithDelay(subjectDropdownShow)"
+        />
+        <div v-if="subjectDropdownShow" class="history-dropdown">
+          <div
+            v-for="item in filteredSubjectHistory"
+            :key="item"
+            class="history-dropdown-item"
+            @mousedown.prevent="subject = item; subjectDropdownShow = false"
+          >
+            {{ item }}
+          </div>
+          <div v-if="filteredSubjectHistory.length === 0" class="history-dropdown-empty">
+            无匹配记录
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="form-row">
       <div class="form-col">
         <label class="field-label">收件人 *</label>
-        <div class="pill-input-shell" :class="{ 'pill-input-error': recipientError }">
-          <span v-for="(addr, i) in recipientTags" :key="i" class="pill-tag" :class="{ editing: editRecipientIdx === i }" @dblclick="editRecipientIdx = i">
-            <template v-if="editRecipientIdx === i">
-              <input
-                v-model="recipientTags[i]"
-                class="pill-edit-input"
-                @keyup.enter="editRecipientIdx = -1"
-                @blur="editRecipientIdx = -1"
-                @click.stop
+        <div class="field-wrapper">
+          <div class="pill-input-shell" :class="{ 'pill-input-error': recipientError }">
+            <span v-for="(addr, i) in recipientTags" :key="i" class="pill-tag" :class="{ editing: editRecipientIdx === i }" @dblclick="editRecipientIdx = i">
+              <template v-if="editRecipientIdx === i">
+                <input
+                  v-model="recipientTags[i]"
+                  class="pill-edit-input"
+                  @keyup.enter="editRecipientIdx = -1"
+                  @blur="editRecipientIdx = -1"
+                  @click.stop
+                />
+              </template>
+              <template v-else>
+                {{ addr }}<button class="pill-tag-x" @click="recipientTags.splice(i, 1)">×</button>
+              </template>
+            </span>
+            <div class="pill-auto">
+              <n-input
+                v-model:value="recipientInput"
+                placeholder="输入邮箱，回车添加"
+                size="small"
+                :input-props="{ autocomplete: 'off' }"
+                @keyup.enter.prevent="addRecipientTag()"
+                @focus="cancelDropdownHide(); recipientDropdownShow = filteredRecipientHistory.length > 0"
+                @blur="addRecipientTag(); hideDropdownWithDelay(recipientDropdownShow)"
               />
-            </template>
-            <template v-else>
-              {{ addr }}<button class="pill-tag-x" @click="recipientTags.splice(i, 1)">×</button>
-            </template>
-          </span>
-          <n-auto-complete
-            v-model:value="recipientInput"
-            :options="recipOptions"
-            :filterable="false"
-            placeholder="输入邮箱，回车添加"
-            size="small"
-            class="pill-auto"
-            @keyup.enter.prevent="addRecipientTag"
-            @blur="addRecipientTag"
-          />
+            </div>
+          </div>
+          <div v-if="recipientDropdownShow" class="history-dropdown">
+            <div
+              v-for="item in filteredRecipientHistory"
+              :key="item"
+              class="history-dropdown-item"
+              @mousedown.prevent="recipientInput = item; recipientDropdownShow = false"
+            >
+              {{ item }}
+            </div>
+            <div v-if="filteredRecipientHistory.length === 0" class="history-dropdown-empty">
+              无匹配记录
+            </div>
+          </div>
         </div>
         <span v-if="recipientError" class="field-error">{{ recipientError }}</span>
       </div>
       <div class="form-col">
         <label class="field-label">抄送 CC</label>
-        <div class="pill-input-shell">
-          <span v-for="(addr, i) in ccTags" :key="i" class="pill-tag" :class="{ editing: editCcIdx === i }" @dblclick="editCcIdx = i">
-            <template v-if="editCcIdx === i">
-              <input
-                v-model="ccTags[i]"
-                class="pill-edit-input"
-                @keyup.enter="editCcIdx = -1"
-                @blur="editCcIdx = -1"
-                @click.stop
+        <div class="field-wrapper">
+          <div class="pill-input-shell">
+            <span v-for="(addr, i) in ccTags" :key="i" class="pill-tag" :class="{ editing: editCcIdx === i }" @dblclick="editCcIdx = i">
+              <template v-if="editCcIdx === i">
+                <input
+                  v-model="ccTags[i]"
+                  class="pill-edit-input"
+                  @keyup.enter="editCcIdx = -1"
+                  @blur="editCcIdx = -1"
+                  @click.stop
+                />
+              </template>
+              <template v-else>
+                {{ addr }}<button class="pill-tag-x" @click="ccTags.splice(i, 1)">×</button>
+              </template>
+            </span>
+            <div class="pill-auto">
+              <n-input
+                v-model:value="ccInput"
+                placeholder="输入邮箱，回车添加"
+                size="small"
+                :input-props="{ autocomplete: 'off' }"
+                @keyup.enter.prevent="addCcTag()"
+                @focus="cancelDropdownHide(); ccDropdownShow = filteredCcHistory.length > 0"
+                @blur="addCcTag(); hideDropdownWithDelay(ccDropdownShow)"
               />
-            </template>
-            <template v-else>
-              {{ addr }}<button class="pill-tag-x" @click="ccTags.splice(i, 1)">×</button>
-            </template>
-          </span>
-          <n-auto-complete
-            v-model:value="ccInput"
-            :options="ccOptions"
-            :filterable="false"
-            placeholder="输入邮箱，回车添加"
-            size="small"
-            class="pill-auto"
-            @keyup.enter.prevent="addCcTag"
-            @blur="addCcTag"
-          />
+            </div>
+          </div>
+          <div v-if="ccDropdownShow" class="history-dropdown">
+            <div
+              v-for="item in filteredCcHistory"
+              :key="item"
+              class="history-dropdown-item"
+              @mousedown.prevent="ccInput = item; ccDropdownShow = false"
+            >
+              {{ item }}
+            </div>
+            <div v-if="filteredCcHistory.length === 0" class="history-dropdown-empty">
+              无匹配记录
+            </div>
+          </div>
         </div>
         <span v-if="ccError" class="field-error">{{ ccError }}</span>
       </div>
@@ -202,15 +263,17 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onActivated, onBeforeUnmount, inject } from "vue";
-import { NInput, NSelect, NButton, NModal, NAutoComplete, NTooltip, useMessage } from "naive-ui";
+import { ref, computed, watch, nextTick, onMounted, onActivated, onBeforeUnmount, inject } from "vue";
+import { NInput, NSelect, NButton, NModal, NAutoComplete, NTooltip, useMessage, useDialog } from "naive-ui";
+import { onBeforeRouteLeave } from "vue-router";
 import SvgIcon from "@/components/SvgIcon.vue";
 import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
-import { sendEmail, getTemplates, getSignatures, getHistory } from "@/api";
+import { sendEmail, getTemplates, getSignatures } from "@/api";
 
 const message = useMessage();
+const dialog = useDialog();
 const accountEmail = inject("accountEmail", ref(""));
 const accountExpired = inject("accountExpired", ref(false));
 const emailType = ref("account");
@@ -234,12 +297,55 @@ const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
 const bodySource = ref("");
+const isDirty = ref(false);
+const suppressDirty = ref(true); // suppressed until init completes
+const subjectDropdownShow = ref(false);
+const recipientDropdownShow = ref(false);
+const ccDropdownShow = ref(false);
+
+let hideDropdownTimer = null;
+function hideDropdownWithDelay(showRef) {
+  clearTimeout(hideDropdownTimer);
+  hideDropdownTimer = setTimeout(() => { showRef.value = false; }, 200);
+}
+function cancelDropdownHide() {
+  clearTimeout(hideDropdownTimer);
+}
+
+function closeAllDropdowns() {
+  subjectDropdownShow.value = false;
+  recipientDropdownShow.value = false;
+  ccDropdownShow.value = false;
+}
+
+function onDocumentClick(e) {
+  if (e.target.closest(".field-wrapper")) return;
+  closeAllDropdowns();
+}
 
 // ── Recipient autocomplete ────────
 
 const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
 const PRESET_KEY = "mailswift_preset_domains";
-const historyEmails = ref([]);
+const subjectHistory = ref([]);
+const recipientHistory = ref([]);
+const ccHistory = ref([]);
+
+function loadSubjectHistory() { subjectHistory.value = loadFieldHistory(FIELD_HISTORY_KEYS.subject); }
+function loadRecipientHistory() { recipientHistory.value = loadFieldHistory(FIELD_HISTORY_KEYS.recipient); }
+function loadCcHistory() { ccHistory.value = loadFieldHistory(FIELD_HISTORY_KEYS.cc); }
+
+function loadAllFieldHistories() {
+  loadSubjectHistory();
+  loadRecipientHistory();
+  loadCcHistory();
+}
+
+const filteredSubjectHistory = computed(() => {
+  const val = (subject.value || "").trim().toLowerCase();
+  if (!val) return subjectHistory.value;
+  return subjectHistory.value.filter((s) => s.toLowerCase().includes(val));
+});
 
 function loadPresetDomains() {
   try {
@@ -248,20 +354,29 @@ function loadPresetDomains() {
   } catch { return [...DEFAULT_DOMAINS]; }
 }
 
-function makeOptions(inputVal) {
-  const val = inputVal || "";
+const filteredRecipientHistory = computed(() => {
+  const val = (recipientInput.value || "").trim().toLowerCase();
   const atIdx = val.indexOf("@");
-  const domains = loadPresetDomains();
   if (atIdx >= 0) {
     const afterAt = val.slice(atIdx);
-    return domains.filter((d) => d.startsWith(afterAt));
+    const domains = loadPresetDomains().filter((d) => d.startsWith(afterAt));
+    if (domains.length) return domains;
   }
-  if (!val) return historyEmails.value;
-  return historyEmails.value.filter((e) => e.toLowerCase().includes(val.toLowerCase()));
-}
+  if (!val) return recipientHistory.value;
+  return recipientHistory.value.filter((e) => e.toLowerCase().includes(val));
+});
 
-const recipOptions = computed(() => makeOptions(recipientInput.value));
-const ccOptions = computed(() => makeOptions(ccInput.value));
+const filteredCcHistory = computed(() => {
+  const val = (ccInput.value || "").trim().toLowerCase();
+  const atIdx = val.indexOf("@");
+  if (atIdx >= 0) {
+    const afterAt = val.slice(atIdx);
+    const domains = loadPresetDomains().filter((d) => d.startsWith(afterAt));
+    if (domains.length) return domains;
+  }
+  if (!val) return ccHistory.value;
+  return ccHistory.value.filter((e) => e.toLowerCase().includes(val));
+});
 
 function addRecipientTag() {
   const val = recipientInput.value.trim();
@@ -289,21 +404,6 @@ function domainWatch(inputRef) {
 }
 domainWatch(recipientInput);
 domainWatch(ccInput);
-
-async function loadHistoryEmails() {
-  try {
-    const { data } = await getHistory({ page: 1, page_size: 200 });
-    const seen = new Set();
-    const addrs = [];
-    (data.items || []).forEach((item) => {
-      [item.recipient, ...(item.cc || "").split(",")].forEach((a) => {
-        const addr = a.trim();
-        if (addr && !seen.has(addr)) { seen.add(addr); addrs.push(addr); }
-      });
-    });
-    historyEmails.value = addrs;
-  } catch { /* no history yet */ }
-}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -380,6 +480,13 @@ function autoSelectDefaultSignature() {
   if (def) selectedSignatureId.value = def.id;
 }
 
+function onBeforeUnload(e) {
+  if (isDirty.value) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+}
+
 onMounted(async () => {
   try {
     const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()]);
@@ -387,8 +494,17 @@ onMounted(async () => {
     signatures.value = sRes.data;
     autoSelectDefaultSignature();
   } catch { /* ignore */ }
-  loadHistoryEmails();
+  loadAllFieldHistories();
   loadDraft();
+  window.addEventListener("beforeunload", onBeforeUnload);
+  document.addEventListener("click", onDocumentClick);
+  // Allow dirty tracking now that initial setup is done
+  nextTick(() => { suppressDirty.value = false; });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("beforeunload", onBeforeUnload);
+  document.removeEventListener("click", onDocumentClick);
 });
 
 onActivated(async () => {
@@ -511,21 +627,70 @@ function substitutePlainMarkers(text) {
 
 // ── Event handlers ──────────────────
 
-function switchType(type) {
-  if (emailType.value === type) return;
-  saveDraft();
+function doSwitchType(type) {
+  suppressDirty.value = true;
   emailType.value = type;
   selectedTemplateId.value = null;
-  bodySource.value = "";
+  selectedSignatureId.value = null;
+  subject.value = "";
+  recipientTags.value = [];
+  recipientInput.value = "";
+  ccTags.value = [];
+  ccInput.value = "";
   body.value = "";
+  bodySource.value = "";
   userEditedBody.value = false;
   formData.value = {};
+  attachments.value = [];
   loadDraft();
-  selectedSignatureId.value = null;
   autoSelectDefaultSignature();
+  suppressDirty.value = false;
+}
+
+function switchType(type) {
+  if (emailType.value === type) return;
+  if (!isDirty.value) {
+    doSwitchType(type);
+    return;
+  }
+  dialog.warning({
+    title: "未保存的更改",
+    content: "当前草稿尚未暂存，切换类型后修改将丢失。是否暂存后再切换？",
+    positiveText: "暂存并切换",
+    negativeText: "不保存",
+    onPositiveClick: () => {
+      saveDraft();
+      doSwitchType(type);
+    },
+    onNegativeClick: () => {
+      suppressDirty.value = true;
+      clearDraft();
+      isDirty.value = false;
+      // Discard all fields and switch cleanly
+      emailType.value = type;
+      selectedTemplateId.value = null;
+      selectedSignatureId.value = null;
+      subject.value = "";
+      recipientTags.value = [];
+      recipientInput.value = "";
+      ccTags.value = [];
+      ccInput.value = "";
+      body.value = "";
+      bodySource.value = "";
+      userEditedBody.value = false;
+      formData.value = {};
+      attachments.value = [];
+      autoSelectDefaultSignature();
+      suppressDirty.value = false;
+    },
+    onClose: () => {
+      // Cancel — stay on current type
+    },
+  });
 }
 
 function handleClear() {
+  suppressDirty.value = true;
   selectedTemplateId.value = null;
   selectedSignatureId.value = null;
   subject.value = "";
@@ -539,6 +704,8 @@ function handleClear() {
   formData.value = {};
   attachments.value = [];
   clearDraft();
+  isDirty.value = false;
+  suppressDirty.value = false;
 }
 
 function onTemplateChange(id) {
@@ -591,13 +758,45 @@ watch([formData, emailType], () => {
 
 // ── Draft persistence ───────────────
 
-const DRAFT_KEY_PREFIX = "mailswift_draft_";
+const DRAFT_KEY_PREFIX = "mailswift_saved_draft_";
+
+// ── Field history ────────────────────
+
+const FIELD_HISTORY_KEYS = {
+  subject: "mailswift_history_subject",
+  recipient: "mailswift_history_recipient",
+  cc: "mailswift_history_cc",
+  account_name: "mailswift_history_account_name",
+  account_type: "mailswift_history_account_type",
+  subscription_id: "mailswift_history_subscription_id",
+  subscription_name: "mailswift_history_subscription_name",
+};
+
+function loadFieldHistory(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function addToFieldHistory(key, value) {
+  if (!value || !value.trim()) return;
+  const history = loadFieldHistory(key);
+  const v = value.trim();
+  const filtered = history.filter((h) => h !== v);
+  filtered.unshift(v);
+  if (filtered.length > 50) filtered.pop();
+  try {
+    localStorage.setItem(key, JSON.stringify(filtered));
+  } catch { /* ignore */ }
+}
 
 function draftKey() {
   return DRAFT_KEY_PREFIX + emailType.value;
 }
 
 function saveDraft() {
+  suppressDirty.value = true;
   const draft = {
     emailType: emailType.value,
     selectedTemplateId: selectedTemplateId.value,
@@ -611,6 +810,13 @@ function saveDraft() {
   try {
     localStorage.setItem(draftKey(), JSON.stringify(draft));
   } catch { /* quota exceeded, ignore */ }
+  isDirty.value = false;
+  suppressDirty.value = false;
+}
+
+function handleSaveDraft() {
+  saveDraft();
+  message.success("草稿已暂存");
 }
 
 function loadDraft() {
@@ -618,6 +824,7 @@ function loadDraft() {
     const raw = localStorage.getItem(draftKey());
     if (!raw) return;
     const draft = JSON.parse(raw);
+    suppressDirty.value = true;
     selectedTemplateId.value = draft.selectedTemplateId || null;
     selectedSignatureId.value = draft.selectedSignatureId || null;
     subject.value = draft.subject || "";
@@ -627,19 +834,28 @@ function loadDraft() {
     ccTags.value = typeof c === "string" ? c.split(",").filter(Boolean) : (Array.isArray(c) ? c : []);
     body.value = draft.body || "";
     formData.value = draft.formData || {};
+    isDirty.value = false;
+    suppressDirty.value = false;
   } catch { /* ignore */ }
 }
 
-// Auto-save draft every 3 seconds
-let draftTimer = null;
-watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipientTags, recipientInput, ccTags, ccInput, body, formData], () => {
-  clearTimeout(draftTimer);
-  draftTimer = setTimeout(saveDraft, 3000);
-}, { deep: true });
+// Track unsaved changes (dirty flag only, no auto-save)
+function hasFormContent() {
+  if (subject.value.trim()) return true;
+  if (recipientTags.value.length) return true;
+  if (ccTags.value.length) return true;
+  if (body.value.trim()) return true;
+  const accounts = formData.value?.accounts || [];
+  if (accounts.some((a) => a.account || a.password || a.account_type)) return true;
+  const subs = formData.value?.subscriptions || [];
+  if (subs.some((s) => s.subscription_id || s.subscription_name)) return true;
+  return false;
+}
 
-onBeforeUnmount(() => {
-  clearTimeout(draftTimer);
-});
+watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipientTags, recipientInput, ccTags, ccInput, body, formData], () => {
+  if (suppressDirty.value) return;
+  if (hasFormContent()) isDirty.value = true;
+}, { deep: true, flush: "sync" });
 
 // ── Send ────────────────────────────
 
@@ -700,6 +916,25 @@ async function handleSend() {
 
     await sendEmail(payload);
     message.success("邮件发送成功");
+
+    // Record field histories
+    addToFieldHistory(FIELD_HISTORY_KEYS.subject, subject.value);
+    recipientTags.value.forEach((t) => addToFieldHistory(FIELD_HISTORY_KEYS.recipient, t));
+    ccTags.value.forEach((t) => addToFieldHistory(FIELD_HISTORY_KEYS.cc, t));
+    if (emailType.value === "account") {
+      (formData.value.accounts || []).forEach((a) => {
+        if (a.account) addToFieldHistory(FIELD_HISTORY_KEYS.account_name, a.account);
+        if (a.account_type) addToFieldHistory(FIELD_HISTORY_KEYS.account_type, a.account_type);
+      });
+    } else {
+      (formData.value.subscriptions || []).forEach((s) => {
+        if (s.subscription_id) addToFieldHistory(FIELD_HISTORY_KEYS.subscription_id, s.subscription_id);
+        if (s.subscription_name) addToFieldHistory(FIELD_HISTORY_KEYS.subscription_name, s.subscription_name);
+      });
+    }
+    // Refresh in-memory histories so dropdown picks up new entries
+    loadAllFieldHistories();
+
     handleClear();
   } catch (err) {
     message.error(err.response?.data?.detail || "发送失败");
@@ -720,6 +955,33 @@ function clearDraft() {
     localStorage.removeItem(draftKey());
   } catch { /* ignore */ }
 }
+
+// ── Route leave guard ────────────────
+
+onBeforeRouteLeave((to, from, next) => {
+  if (!isDirty.value) {
+    next();
+    return;
+  }
+  dialog.warning({
+    title: "未保存的更改",
+    content: "当前草稿尚未暂存，离开后修改将丢失。是否暂存后再离开？",
+    positiveText: "暂存并离开",
+    negativeText: "不保存",
+    onPositiveClick: () => {
+      saveDraft();
+      next();
+    },
+    onNegativeClick: () => {
+      clearDraft();
+      isDirty.value = false;
+      next();
+    },
+    onClose: () => {
+      // User cancelled the dialog — stay on current page
+    },
+  });
+});
 </script>
 
 <style scoped>
@@ -737,6 +999,12 @@ function clearDraft() {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 28px;
+}
+
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .page-title {
@@ -810,6 +1078,52 @@ function clearDraft() {
   font-weight: 500;
   color: #1d1d1f;
   margin-bottom: 6px;
+}
+
+.field-wrapper {
+  position: relative;
+}
+
+.history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-dropdown-item {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1d1d1f;
+  transition: background 0.1s;
+}
+
+.history-dropdown-item:hover {
+  background: #f0f7ff;
+}
+
+.history-dropdown-item:first-child {
+  border-radius: 10px 10px 0 0;
+}
+
+.history-dropdown-item:last-child {
+  border-radius: 0 0 10px 10px;
+}
+
+.history-dropdown-empty {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #999;
+  text-align: center;
 }
 
 .field-error {
