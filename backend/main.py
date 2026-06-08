@@ -17,6 +17,7 @@ from .models import (
     Settings, EmailHistory, EmailTemplate, Signature,
     DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
     DEFAULT_PASSWORD_RESET_TEMPLATE,
+    DEFAULT_HP_INITIAL_TEMPLATE,
 )
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_connection
@@ -70,14 +71,21 @@ def _migrate_schema(db: Session):
 def _migrate_templates(db: Session):
     """Create default email templates on first launch."""
     existing = db.query(EmailTemplate).count()
-    if existing > 0:
+    if existing == 0:
+        db.add(EmailTemplate(name="Create DevOps/DevOps NonRestricted", type="account", content=DEFAULT_ACCOUNT_TEMPLATE))
+        db.add(EmailTemplate(name="Password reset", type="account", content=DEFAULT_PASSWORD_RESET_TEMPLATE))
+        db.add(EmailTemplate(name="Request Subscription", type="subscription", content=DEFAULT_SUBSCRIPTION_TEMPLATE))
+        db.add(EmailTemplate(name="HP INITIAL", type="high_priority", content=DEFAULT_HP_INITIAL_TEMPLATE))
+        db.commit()
+        logger.info("Created default email templates")
         return
 
-    db.add(EmailTemplate(name="Create DevOps/DevOps NonRestricted", type="account", content=DEFAULT_ACCOUNT_TEMPLATE))
-    db.add(EmailTemplate(name="Password reset", type="account", content=DEFAULT_PASSWORD_RESET_TEMPLATE))
-    db.add(EmailTemplate(name="Request Subscription", type="subscription", content=DEFAULT_SUBSCRIPTION_TEMPLATE))
-    db.commit()
-    logger.info("Created default email templates")
+    # Backfill HP INITIAL for existing databases
+    hp = db.query(EmailTemplate).filter(EmailTemplate.name == "HP INITIAL").first()
+    if not hp:
+        db.add(EmailTemplate(name="HP INITIAL", type="high_priority", content=DEFAULT_HP_INITIAL_TEMPLATE))
+        db.commit()
+        logger.info("Backfilled HP INITIAL template")
 
 
 @asynccontextmanager
@@ -142,7 +150,7 @@ class AttachmentItem(BaseModel):
 
 
 class SendEmailRequest(BaseModel):
-    email_type: str = Field(..., pattern="^(account|subscription)$")
+    email_type: str = Field(..., pattern="^(account|subscription|high_priority)$")
     recipient: str
     cc: str = ""
     subject: str = ""
@@ -174,7 +182,7 @@ class HistoryListResponse(BaseModel):
 
 class TemplateCreate(BaseModel):
     name: str
-    type: str = Field(..., pattern="^(account|subscription)$")
+    type: str = Field(..., pattern="^(account|subscription|high_priority)$")
     content: str = ""
 
 

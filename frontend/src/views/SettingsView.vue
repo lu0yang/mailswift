@@ -123,7 +123,7 @@
                 {{ tab.label }}
               </div>
             </div>
-            <n-button type="primary" size="small" @click="openTemplateModal(null)">
+            <n-button v-if="templateFilter !== 'high_priority'" type="primary" size="small" @click="openTemplateModal(null)">
               <template #icon><SvgIcon name="add" /></template>
               新建模板
             </n-button>
@@ -132,10 +132,10 @@
           <div v-for="t in filteredTemplates" :key="t.id" class="list-card">
             <div class="list-card-main">
               <div class="list-card-left">
-                <span class="type-badge" :class="t.type">{{ t.type === 'account' ? '账号' : '订阅' }}</span>
+                <span class="type-badge" :class="t.type">{{ t.type === 'account' ? '账号' : t.type === 'subscription' ? '订阅' : 'HP' }}</span>
                 <span class="list-card-name">{{ t.name }}</span>
               </div>
-              <div class="list-card-right">
+              <div v-if="t.type !== 'high_priority'" class="list-card-right">
                 <n-button text size="tiny" @click="openTemplateModal(t)">编辑</n-button>
                 <n-button text size="tiny" type="error" @click="handleDeleteTemplate(t.id)">删除</n-button>
               </div>
@@ -566,6 +566,7 @@ const templateFilterTabs = [
   { label: "全部", value: "" },
   { label: "账号", value: "account" },
   { label: "订阅", value: "subscription" },
+  { label: "HP", value: "high_priority" },
 ];
 
 const filteredTemplates = computed(() => {
@@ -1185,6 +1186,7 @@ async function handleDeleteSignature(id) {
 
 .type-badge.account { background: #f0f7ff; color: #0071e3; }
 .type-badge.subscription { background: #f3e8ff; color: #7c3aed; }
+.type-badge.high_priority { background: #ffe8e8; color: #c00000; }
 
 .default-badge {
   font-size: 11px;

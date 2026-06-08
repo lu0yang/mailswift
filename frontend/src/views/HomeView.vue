@@ -38,6 +38,17 @@
         <div class="type-label">订阅创建</div>
         <div class="type-desc">发送订阅信息</div>
       </div>
+      <div
+        class="type-card"
+        :class="{ active: emailType === 'high_priority' }"
+        @click="switchType('high_priority')"
+      >
+        <div class="type-icon">
+          <SvgIcon name="alert" :size="24" />
+        </div>
+        <div class="type-label">High Priority</div>
+        <div class="type-desc">发送 Incident 通知</div>
+      </div>
     </div>
 
     <!-- Template selector -->
@@ -54,7 +65,7 @@
     </div>
 
     <!-- Subject & Recipient -->
-    <div class="form-field">
+    <div v-if="emailType !== 'high_priority'" class="form-field">
       <label class="field-label">邮件标题 *</label>
       <div class="field-wrapper">
         <n-input
@@ -179,10 +190,20 @@
 
     <!-- Dynamic form -->
     <AccountForm v-if="emailType === 'account'" v-model="formData" />
-    <SubscriptionForm v-else v-model="formData" />
+    <SubscriptionForm v-else-if="emailType === 'subscription'" v-model="formData" />
+    <HighPriorityForm v-else-if="emailType === 'high_priority'" v-model="formData" />
 
-    <!-- Email body editor -->
-    <div class="preview-card">
+    <!-- Incident Bridge with TipTap editor (HP only) -->
+    <div v-if="emailType === 'high_priority'" class="preview-card">
+      <div class="preview-header">Incident Bridge *（支持粘贴超链接）</div>
+      <RichTextEditor
+        ref="incidentBridgeEditorRef"
+        v-model="incidentBridgeHtml"
+      />
+    </div>
+
+    <!-- Email body editor (hidden for HP — body is auto-generated) -->
+    <div v-if="emailType !== 'high_priority'" class="preview-card">
       <div class="preview-header">邮件正文（富文本编辑）</div>
       <RichTextEditor
         ref="rteRef"
@@ -215,9 +236,9 @@
             <span v-for="(addr, i) in ccTags" :key="i" class="preview-pill">{{ addr }}</span>
           </span>
         </div>
-        <div v-if="subject" class="preview-meta-row">
+        <div v-if="subject || previewEmailSubject" class="preview-meta-row">
           <span class="preview-meta-label">标题</span>
-          <span class="preview-meta-val preview-meta-subject">{{ subject }}</span>
+          <span class="preview-meta-val preview-meta-subject">{{ previewEmailSubject || subject }}</span>
         </div>
       </div>
       <div v-if="body" class="preview-body" v-html="previewHtml"></div>
@@ -230,8 +251,8 @@
       </div>
     </n-modal>
 
-    <!-- Signature selector -->
-    <div class="form-field">
+    <!-- Signature selector (hidden for HP — signature is outside the body template) -->
+    <div v-if="emailType !== 'high_priority'" class="form-field">
       <label class="field-label">邮件签名</label>
       <n-select
         v-model:value="selectedSignatureId"
@@ -270,6 +291,7 @@ import SvgIcon from "@/components/SvgIcon.vue";
 import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
+import HighPriorityForm from "@/components/HighPriorityForm.vue";
 import { sendEmail, getTemplates, getSignatures } from "@/api";
 
 const message = useMessage();
@@ -292,7 +314,9 @@ const previewVisible = ref(false);
 const sending = ref(false);
 
 const rteRef = ref(null);
+const incidentBridgeEditorRef = ref(null);
 const attachments = ref([]);
+const incidentBridgeHtml = ref("");
 const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
@@ -311,6 +335,10 @@ function hideDropdownWithDelay(showRef) {
 function cancelDropdownHide() {
   clearTimeout(hideDropdownTimer);
 }
+
+// Auto-show dropdown as user types (e.g. domain suggestions appearing mid-input)
+watch(recipientInput, () => { if (filteredRecipientHistory.value.length) recipientDropdownShow.value = true; });
+watch(ccInput, () => { if (filteredCcHistory.value.length) ccDropdownShow.value = true; });
 
 function closeAllDropdowns() {
   subjectDropdownShow.value = false;
@@ -359,8 +387,10 @@ const filteredRecipientHistory = computed(() => {
   const atIdx = val.indexOf("@");
   if (atIdx >= 0) {
     const afterAt = val.slice(atIdx);
-    const domains = loadPresetDomains().filter((d) => d.startsWith(afterAt));
-    if (domains.length) return domains;
+    const domains = loadPresetDomains();
+    if (domains.some((d) => d === afterAt)) return [];
+    const matching = domains.filter((d) => d.startsWith(afterAt));
+    if (matching.length) return matching;
   }
   if (!val) return recipientHistory.value;
   return recipientHistory.value.filter((e) => e.toLowerCase().includes(val));
@@ -371,8 +401,10 @@ const filteredCcHistory = computed(() => {
   const atIdx = val.indexOf("@");
   if (atIdx >= 0) {
     const afterAt = val.slice(atIdx);
-    const domains = loadPresetDomains().filter((d) => d.startsWith(afterAt));
-    if (domains.length) return domains;
+    const domains = loadPresetDomains();
+    if (domains.some((d) => d === afterAt)) return [];
+    const matching = domains.filter((d) => d.startsWith(afterAt));
+    if (matching.length) return matching;
   }
   if (!val) return ccHistory.value;
   return ccHistory.value.filter((e) => e.toLowerCase().includes(val));
@@ -438,6 +470,13 @@ const signatureOptions = computed(() =>
   }))
 );
 
+const previewEmailSubject = computed(() => {
+  if (emailType.value !== "high_priority") return "";
+  const d = formData.value || {};
+  if (!d.severity && !d.ticket_id && !d.title) return "";
+  return `${d.status_prefix || "INITIAL"} ${d.severity || "Sev?"}-Incident [${d.ticket_id || "xxxxxx"}] - ${d.category || "Network"} - ${d.title || ""}`;
+});
+
 const previewHtml = computed(() => {
   let html = body.value || "";
   if (selectedSignatureId.value) {
@@ -449,16 +488,64 @@ const previewHtml = computed(() => {
   return html;
 });
 
+// ── High Priority body rendering ────
+
+function managersToHtml(managers) {
+  return (managers || []).map((m) =>
+    `${m.name} <a href="mailto:${m.email}">${m.email}</a>`
+  ).join("; ");
+}
+
+function autoLink(text) {
+  if (!text) return "";
+  return text.replace(
+    /(https?:\/\/[^\s<>]+)/gi,
+    '<a href="$1" target="_blank" style="color:#0071e3;text-decoration:underline">$1</a>'
+  );
+}
+
+function buildTitleLine(d) {
+  const sev = d.severity || "Sev?";
+  const tid = d.ticket_id || "xxxxxx";
+  const cat = d.category || "Network";
+  const ttl = d.title || "";
+  return `${d.status_prefix || "INITIAL"} – ${sev} – ${cat} – ${ttl}`;
+}
+
+function renderHighPriorityBody(templateContent) {
+  if (!templateContent) return "";
+  const d = formData.value || {};
+  let html = templateContent;
+  html = html.replaceAll("{title_line}", buildTitleLine(d));
+  html = html.replaceAll("{date}", d.date || "");
+  html = html.replaceAll("{current_status}", d.current_status || "");
+  html = html.replaceAll("{description}", (d.description || "").replace(/\n/g, "<br>"));
+  html = html.replaceAll("{start_datetime}", d.start_datetime || "");
+  html = html.replaceAll("{impact}", d.impact || "");
+  html = html.replaceAll("{managers}", managersToHtml(d.managers));
+  html = html.replaceAll("{next_update}", d.next_update || "");
+  html = html.replaceAll("{incident_bridge}", incidentBridgeHtml.value);
+  return html;
+}
+
 const sendHints = computed(() => {
   const hints = [];
   if (!accountEmail.value) hints.push("请先在设置中配置邮箱凭据");
   else if (accountExpired.value) hints.push("凭据已过期，请更新密码");
-  if (!subject.value) hints.push("请填写邮件标题");
+  if (emailType.value !== "high_priority" && !subject.value) hints.push("请填写邮件标题");
   if (!body.value.trim()) hints.push("请填写邮件正文");
   if (!recipientTags.value.length) hints.push("请添加至少一个收件人");
   else if (recipientError.value) hints.push(recipientError.value);
   if (ccError.value) hints.push(ccError.value);
-  if (emailType.value === "account") {
+  if (emailType.value === "high_priority") {
+    const d = formData.value || {};
+    if (!d.severity) hints.push("请选择 Severity");
+    if (!d.ticket_id) hints.push("请填写 Ticket ID");
+    if (!d.title) hints.push("请填写 Title");
+    if (!d.description) hints.push("请填写 Description");
+    if (!d.start_datetime) hints.push("请填写 Start Date & Time");
+    if (!incidentBridgeHtml.value.trim()) hints.push("请填写 Incident Bridge");
+  } else if (emailType.value === "account") {
     const accts = formData.value.accounts;
     if (!accts || !accts.length) hints.push("请至少添加一条账号信息");
     else if (!accts.some((a) => a.account && a.password && a.account_type)) hints.push("请完整填写至少一条账号（账号、密码、类型）");
@@ -642,6 +729,7 @@ function doSwitchType(type) {
   userEditedBody.value = false;
   formData.value = {};
   attachments.value = [];
+  incidentBridgeHtml.value = "";
   loadDraft();
   autoSelectDefaultSignature();
   suppressDirty.value = false;
@@ -680,6 +768,7 @@ function switchType(type) {
       userEditedBody.value = false;
       formData.value = {};
       attachments.value = [];
+      incidentBridgeHtml.value = "";
       autoSelectDefaultSignature();
       suppressDirty.value = false;
     },
@@ -703,6 +792,7 @@ function handleClear() {
   userEditedBody.value = false;
   formData.value = {};
   attachments.value = [];
+  incidentBridgeHtml.value = "";
   clearDraft();
   isDirty.value = false;
   suppressDirty.value = false;
@@ -718,7 +808,11 @@ function onTemplateChange(id) {
   if (t) {
     bodySource.value = t.content;
     userEditedBody.value = false;
-    body.value = renderTemplateContent(t.content);
+    if (emailType.value === "high_priority") {
+      body.value = renderHighPriorityBody(t.content);
+    } else {
+      body.value = renderTemplateContent(t.content);
+    }
     selectedSignatureId.value = null;
     autoSelectDefaultSignature();
   }
@@ -728,8 +822,15 @@ function onBodyEdited() {
   userEditedBody.value = true;
 }
 
-// Re-render body when formData changes
-watch([formData, emailType], () => {
+// Re-render body when formData or incidentBridgeHtml changes
+watch([formData, emailType, incidentBridgeHtml], () => {
+  if (emailType.value === "high_priority") {
+    if (selectedTemplateId.value) {
+      const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
+      if (t) { bodySource.value = t.content; body.value = renderHighPriorityBody(t.content); }
+    }
+    return;
+  }
   if (selectedTemplateId.value) {
     // Template selected: re-render from template content (unless user edited manually)
     if (userEditedBody.value) return;
@@ -806,6 +907,7 @@ function saveDraft() {
     cc: ccTags.value.join(","),
     body: body.value,
     formData: formData.value,
+    incidentBridgeHtml: incidentBridgeHtml.value,
   };
   try {
     localStorage.setItem(draftKey(), JSON.stringify(draft));
@@ -834,6 +936,7 @@ function loadDraft() {
     ccTags.value = typeof c === "string" ? c.split(",").filter(Boolean) : (Array.isArray(c) ? c : []);
     body.value = draft.body || "";
     formData.value = draft.formData || {};
+    incidentBridgeHtml.value = draft.incidentBridgeHtml || "";
     isDirty.value = false;
     suppressDirty.value = false;
   } catch { /* ignore */ }
@@ -849,6 +952,7 @@ function hasFormContent() {
   if (accounts.some((a) => a.account || a.password || a.account_type)) return true;
   const subs = formData.value?.subscriptions || [];
   if (subs.some((s) => s.subscription_id || s.subscription_name)) return true;
+  if (incidentBridgeHtml.value.trim()) return true;
   return false;
 }
 
@@ -871,16 +975,26 @@ async function handleSend() {
   }
   sending.value = true;
   try {
+    // For high_priority, auto-construct subject from form fields
+    let finalSubject = subject.value;
+    if (emailType.value === "high_priority") {
+      const d = formData.value || {};
+      finalSubject = `${d.status_prefix || "INITIAL"} ${d.severity || "Sev?"}-Incident [${d.ticket_id || "xxxxxx"}] - ${d.category || "Network"} - ${d.title || ""}`;
+    }
+
     const payload = {
       email_type: emailType.value,
       recipient: recipientTags.value.join(","),
       cc: ccTags.value.join(","),
-      subject: subject.value,
+      subject: finalSubject,
       body: body.value,
       template_id: selectedTemplateId.value || null,
       signature_id: selectedSignatureId.value || null,
     };
-    if (emailType.value === "account") {
+    if (emailType.value === "high_priority") {
+      payload.accounts = [];
+      payload.subscriptions = [];
+    } else if (emailType.value === "account") {
       payload.accounts = (formData.value.accounts || []).map((a) => ({
         account: a.account,
         password: a.password,
@@ -1016,7 +1130,7 @@ onBeforeRouteLeave((to, from, next) => {
 
 .type-switcher {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
   margin-bottom: 28px;
 }
