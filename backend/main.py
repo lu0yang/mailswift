@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 
 from .database import init_db, get_db
 from .models import (
-    Settings, EmailHistory, EmailTemplate, Signature,
+    Settings, EmailHistory, EmailTemplate, Signature, IncidentStore,
     DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
     DEFAULT_PASSWORD_RESET_TEMPLATE,
     DEFAULT_HP_INITIAL_TEMPLATE,
+    DEFAULT_HP_UPDATED_TEMPLATE,
+    DEFAULT_HP_MITIGATED_TEMPLATE,
 )
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_connection
@@ -76,6 +78,8 @@ def _migrate_templates(db: Session):
         db.add(EmailTemplate(name="Password reset", type="account", content=DEFAULT_PASSWORD_RESET_TEMPLATE))
         db.add(EmailTemplate(name="Request Subscription", type="subscription", content=DEFAULT_SUBSCRIPTION_TEMPLATE))
         db.add(EmailTemplate(name="HP INITIAL", type="high_priority", content=DEFAULT_HP_INITIAL_TEMPLATE))
+        db.add(EmailTemplate(name="HP UPDATED", type="high_priority", content=DEFAULT_HP_UPDATED_TEMPLATE))
+        db.add(EmailTemplate(name="HP MITIGATED", type="high_priority", content=DEFAULT_HP_MITIGATED_TEMPLATE))
         db.commit()
         logger.info("Created default email templates")
         return
@@ -86,6 +90,20 @@ def _migrate_templates(db: Session):
         db.add(EmailTemplate(name="HP INITIAL", type="high_priority", content=DEFAULT_HP_INITIAL_TEMPLATE))
         db.commit()
         logger.info("Backfilled HP INITIAL template")
+
+    # Backfill HP UPDATED for existing databases
+    hp_upd = db.query(EmailTemplate).filter(EmailTemplate.name == "HP UPDATED").first()
+    if not hp_upd:
+        db.add(EmailTemplate(name="HP UPDATED", type="high_priority", content=DEFAULT_HP_UPDATED_TEMPLATE))
+        db.commit()
+        logger.info("Backfilled HP UPDATED template")
+
+    # Backfill HP MITIGATED for existing databases
+    hp_mit = db.query(EmailTemplate).filter(EmailTemplate.name == "HP MITIGATED").first()
+    if not hp_mit:
+        db.add(EmailTemplate(name="HP MITIGATED", type="high_priority", content=DEFAULT_HP_MITIGATED_TEMPLATE))
+        db.commit()
+        logger.info("Backfilled HP MITIGATED template")
 
 
 @asynccontextmanager
@@ -160,6 +178,8 @@ class SendEmailRequest(BaseModel):
     accounts: list[AccountItem] = []
     subscriptions: list[SubscriptionItem] = []
     attachments: list[AttachmentItem] = []
+    ticket_id: str = ""
+    form_data: dict | None = None
 
 
 class HistoryResponse(BaseModel):
@@ -465,6 +485,26 @@ def _strip_html(html: str) -> str:
     return text.strip()
 
 
+def _upsert_incident(db: Session, ticket_id: str, form_data: dict | None):
+    """Insert or update an incident record in incident_store."""
+    import json
+    incident = db.query(IncidentStore).filter(IncidentStore.ticket_id == ticket_id).first()
+    if incident:
+        incident.form_data = json.dumps(form_data or {}, ensure_ascii=False)
+        incident.updated_at = datetime.now(timezone(timedelta(hours=8)))
+        # Update status from form_data if present
+        if form_data and "status_prefix" in form_data:
+            incident.status = form_data["status_prefix"]
+    else:
+        incident = IncidentStore(
+            ticket_id=ticket_id,
+            status=form_data.get("status_prefix", "INITIAL") if form_data else "INITIAL",
+            form_data=json.dumps(form_data or {}, ensure_ascii=False),
+        )
+        db.add(incident)
+    db.commit()
+
+
 # ── Send Email API ──────────────────────────────────────
 
 
@@ -490,9 +530,9 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
         sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
         if sig and sig.content:
             if "sig-paste-wrap" in sig.content:
-                body_html += "\n" + sig.content
+                body_html += "\n<br>\n" + sig.content
             else:
-                body_html += "\n<div style=\"max-width:600px;\">" + sig.content + "</div>"
+                body_html += "\n<br>\n<div style=\"max-width:600px;\">" + sig.content + "</div>"
 
     try:
         smtp_password = decrypt_password(s.encrypted_password)
@@ -524,6 +564,10 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
 
     if not success:
         raise HTTPException(status_code=500, detail=error_msg)
+
+    # Upsert incident_store for HP emails
+    if data.email_type == "high_priority" and data.ticket_id:
+        _upsert_incident(db, data.ticket_id, data.form_data)
 
     return {"ok": True, "history_id": record.id}
 
@@ -644,6 +688,23 @@ def delete_account(account_id: int, db: Session = Depends(get_db)):
     db.delete(a)
     db.commit()
     return {"ok": True}
+
+
+# ── Incident Store APIs ─────────────────────────────────
+
+
+@app.get("/api/incident-store/lookup")
+def lookup_incident(ticket_id: str = Query(...), db: Session = Depends(get_db)):
+    """Look up a previous incident by ticket_id."""
+    incident = db.query(IncidentStore).filter(IncidentStore.ticket_id == ticket_id).first()
+    if not incident:
+        return {"ok": False, "detail": f"未找到关联事件 [{ticket_id}]，请手动填写表单信息"}
+    try:
+        import json
+        form_data = json.loads(incident.form_data)
+    except Exception:
+        form_data = {}
+    return {"ok": True, "data": {"status": incident.status, "form_data": form_data}}
 
 
 @app.get("/api/health")

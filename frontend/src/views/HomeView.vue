@@ -64,6 +64,28 @@
       />
     </div>
 
+    <!-- 关联单号查询 (HP non-INITIAL only) -->
+    <div v-if="emailType === 'high_priority' && hpStatusPrefix !== 'INITIAL'" class="lookup-section">
+      <div class="lookup-row">
+        <n-input
+          v-model:value="lookupTicketId"
+          placeholder="输入关联 Ticket ID 查询 INITIAL 事件"
+          size="large"
+          :input-props="{ autocomplete: 'off' }"
+          style="flex:1"
+        />
+        <n-button type="primary" size="large" :loading="lookupLoading" @click="handleLookupIncident">
+          查询并复用
+        </n-button>
+      </div>
+      <div v-if="lookupResult && lookupResult.found" class="lookup-hint lookup-hint-success">
+        ✅ 已从 INITIAL 事件 [{{ lookupResult.ticketId }}] 中复用以下字段：收件人、抄送、Severity、Category、Title、Description、Start Date &amp; Time、Impact、Operations Manager、Incident Bridge
+      </div>
+      <div v-if="lookupResult && !lookupResult.found" class="lookup-hint lookup-hint-warn">
+        ⚠️ 未找到关联事件，请手动填写表单信息
+      </div>
+    </div>
+
     <!-- Subject & Recipient -->
     <div v-if="emailType !== 'high_priority'" class="form-field">
       <label class="field-label">邮件标题 *</label>
@@ -191,7 +213,28 @@
     <!-- Dynamic form -->
     <AccountForm v-if="emailType === 'account'" v-model="formData" />
     <SubscriptionForm v-else-if="emailType === 'subscription'" v-model="formData" />
-    <HighPriorityForm v-else-if="emailType === 'high_priority'" v-model="formData" />
+    <HighPriorityForm v-else-if="emailType === 'high_priority'" v-model="formData">
+      <!-- UPDATED: Update between Impact and Operations Manager -->
+      <template v-if="hpStatusPrefix === 'UPDATED'" #after-impact>
+        <div class="form-field">
+          <label class="field-label">Update *</label>
+          <RichTextEditor
+            ref="updateEditorRef"
+            v-model="updateHtml"
+          />
+        </div>
+      </template>
+      <!-- MITIGATED: Update after Operations Manager, before Resolution -->
+      <template v-if="hpStatusPrefix === 'MITIGATED'" #after-operations>
+        <div class="form-field">
+          <label class="field-label">Update *</label>
+          <RichTextEditor
+            ref="updateMitigatedEditorRef"
+            v-model="updateHtml"
+          />
+        </div>
+      </template>
+    </HighPriorityForm>
 
     <!-- Incident Bridge with TipTap editor (HP only) -->
     <div v-if="emailType === 'high_priority'" class="preview-card">
@@ -222,7 +265,7 @@
     </div>
 
     <!-- Preview modal -->
-    <n-modal v-model:show="previewVisible" preset="card" title="邮件预览" style="max-width:720px">
+    <n-modal v-model:show="previewVisible" preset="card" title="邮件预览" style="max-width:1060px">
       <div v-if="recipientTags.length || ccTags.length || subject" class="preview-meta">
         <div v-if="recipientTags.length" class="preview-meta-row">
           <span class="preview-meta-label">收件人</span>
@@ -292,7 +335,7 @@ import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
 import HighPriorityForm from "@/components/HighPriorityForm.vue";
-import { sendEmail, getTemplates, getSignatures } from "@/api";
+import { sendEmail, getTemplates, getSignatures, lookupIncident } from "@/api";
 
 const message = useMessage();
 const dialog = useDialog();
@@ -317,6 +360,10 @@ const rteRef = ref(null);
 const incidentBridgeEditorRef = ref(null);
 const attachments = ref([]);
 const incidentBridgeHtml = ref("");
+const updateHtml = ref("");
+const lookupTicketId = ref("");
+const lookupLoading = ref(false);
+const lookupResult = ref(null);  // null | { found: true, ticketId } | { found: false }
 const formData = ref({});
 const templates = ref([]);
 const signatures = ref([]);
@@ -477,18 +524,75 @@ const previewEmailSubject = computed(() => {
   return `${d.status_prefix || "INITIAL"} ${d.severity || "Sev?"}-Incident [${d.ticket_id || "xxxxxx"}] - ${d.category || "Network"} - ${d.title || ""}`;
 });
 
+// Derive HP status_prefix from selected template name
+const hpStatusPrefix = computed(() => {
+  if (emailType.value !== "high_priority") return "INITIAL";
+  if (!selectedTemplateId.value) return "INITIAL";
+  const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
+  if (!t) return "INITIAL";
+  const name = (t.name || "").toUpperCase();
+  if (name.includes("UPDATED")) return "UPDATED";
+  if (name.includes("MITIGATED")) return "MITIGATED";
+  return "INITIAL";
+});
+
+async function handleLookupIncident() {
+  const tid = lookupTicketId.value.trim();
+  if (!tid) return;
+  lookupLoading.value = true;
+  lookupResult.value = null;
+  try {
+    const res = await lookupIncident(tid);
+    if (res.data.ok) {
+      const stored = res.data.data.form_data || {};
+      formData.value = {
+        ...formData.value,
+        severity: stored.severity || formData.value.severity || "",
+        ticket_id: stored.ticket_id || formData.value.ticket_id || tid,
+        category: stored.category || formData.value.category || "Network",
+        title: stored.title || formData.value.title || "",
+        description: stored.description || formData.value.description || "",
+        start_datetime: stored.start_datetime || formData.value.start_datetime || "",
+        impact: stored.impact || formData.value.impact || "No impact",
+        managers: stored.managers || formData.value.managers || [],
+      };
+      incidentBridgeHtml.value = stored.incidentBridgeHtml || "";
+      updateHtml.value = stored.updateHtml || "";
+      // Restore recipient/CC
+      const restoredRecipient = stored.recipient || "";
+      recipientTags.value = restoredRecipient ? restoredRecipient.split(",").filter(Boolean) : recipientTags.value;
+      const restoredCc = stored.cc || "";
+      ccTags.value = restoredCc ? restoredCc.split(",").filter(Boolean) : ccTags.value;
+      lookupResult.value = { found: true, ticketId: tid };
+    } else {
+      lookupResult.value = { found: false };
+    }
+  } catch {
+    lookupResult.value = { found: false };
+  } finally {
+    lookupLoading.value = false;
+  }
+}
+
 const previewHtml = computed(() => {
   let html = body.value || "";
   if (selectedSignatureId.value) {
     const sig = signatures.value.find((s) => s.id === selectedSignatureId.value);
     if (sig && sig.content) {
-      html += "<hr>" + sig.content;
+      html += "<br>" + sig.content;
     }
   }
   return html;
 });
 
 // ── High Priority body rendering ────
+
+function todayStr() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${m}/${dd}/${d.getFullYear()}`;
+}
 
 function managersToHtml(managers) {
   return (managers || []).map((m) =>
@@ -524,6 +628,9 @@ function renderHighPriorityBody(templateContent) {
   html = html.replaceAll("{impact}", d.impact || "");
   html = html.replaceAll("{managers}", managersToHtml(d.managers));
   html = html.replaceAll("{next_update}", d.next_update || "");
+  html = html.replaceAll("{update}", updateHtml.value || "");
+  html = html.replaceAll("{resolution}", d.resolution || "");
+  html = html.replaceAll("{end_datetime}", d.end_datetime || "");
   html = html.replaceAll("{incident_bridge}", incidentBridgeHtml.value);
   return html;
 }
@@ -543,8 +650,15 @@ const sendHints = computed(() => {
     if (!d.ticket_id) hints.push("请填写 Ticket ID");
     if (!d.title) hints.push("请填写 Title");
     if (!d.description) hints.push("请填写 Description");
-    if (!d.start_datetime) hints.push("请填写 Start Date & Time");
+    const startDt = (d.start_datetime || "").replace(/Beijing Time\(GMT\+8\)\s*:\s*/i, "").trim();
+    if (!startDt) hints.push("请完整填写 Start Date & Time（在 Beijing Time(GMT+8) : 后面填写日期时间）");
+    else if (!/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}\s+([01]\d|2[0-3]):[0-5]\d$/.test(startDt)) hints.push("Start Date & Time 格式不正确，应为 MM/DD/YYYY HH:MM");
     if (!incidentBridgeHtml.value.trim()) hints.push("请填写 Incident Bridge");
+    if (hpStatusPrefix.value !== "INITIAL" && !updateHtml.value.trim()) hints.push("请填写 Update");
+    if (hpStatusPrefix.value === "MITIGATED" && !(d.resolution || "").trim()) hints.push("请填写 Resolution");
+    const endDt = (d.end_datetime || "").replace(/Beijing Time\(GMT\+8\)\s*:\s*/i, "").trim();
+    if (hpStatusPrefix.value === "MITIGATED" && !endDt) hints.push("请完整填写 End Date & Time（在 Beijing Time(GMT+8) : 后面填写日期时间）");
+    else if (hpStatusPrefix.value === "MITIGATED" && endDt && !/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}\s+([01]\d|2[0-3]):[0-5]\d$/.test(endDt)) hints.push("End Date & Time 格式不正确，应为 MM/DD/YYYY HH:MM");
   } else if (emailType.value === "account") {
     const accts = formData.value.accounts;
     if (!accts || !accts.length) hints.push("请至少添加一条账号信息");
@@ -730,6 +844,9 @@ function doSwitchType(type) {
   formData.value = {};
   attachments.value = [];
   incidentBridgeHtml.value = "";
+  updateHtml.value = "";
+  lookupTicketId.value = "";
+  lookupResult.value = null;
   loadDraft();
   autoSelectDefaultSignature();
   suppressDirty.value = false;
@@ -769,6 +886,9 @@ function switchType(type) {
       formData.value = {};
       attachments.value = [];
       incidentBridgeHtml.value = "";
+      updateHtml.value = "";
+      lookupTicketId.value = "";
+      lookupResult.value = null;
       autoSelectDefaultSignature();
       suppressDirty.value = false;
     },
@@ -793,6 +913,9 @@ function handleClear() {
   formData.value = {};
   attachments.value = [];
   incidentBridgeHtml.value = "";
+  updateHtml.value = "";
+  lookupTicketId.value = "";
+  lookupResult.value = null;
   clearDraft();
   isDirty.value = false;
   suppressDirty.value = false;
@@ -809,6 +932,24 @@ function onTemplateChange(id) {
     bodySource.value = t.content;
     userEditedBody.value = false;
     if (emailType.value === "high_priority") {
+      // Determine status_prefix from template name
+      const name = (t.name || "").toUpperCase();
+      let prefix = "INITIAL";
+      if (name.includes("UPDATED")) prefix = "UPDATED";
+      else if (name.includes("MITIGATED")) prefix = "MITIGATED";
+      // Reset HP-specific fields on template switch
+      incidentBridgeHtml.value = "";
+      updateHtml.value = "";
+      lookupTicketId.value = "";
+      lookupResult.value = null;
+      // Sync status_prefix to formData so HighPriorityForm picks it up
+      formData.value = {
+        ...formData.value,
+        status_prefix: prefix,
+        current_status: prefix === "INITIAL" ? "Initial" :
+                        prefix === "UPDATED" ? "Investigating" : "Mitigated",
+        date: todayStr(),
+      };
       body.value = renderHighPriorityBody(t.content);
     } else {
       body.value = renderTemplateContent(t.content);
@@ -823,7 +964,7 @@ function onBodyEdited() {
 }
 
 // Re-render body when formData or incidentBridgeHtml changes
-watch([formData, emailType, incidentBridgeHtml], () => {
+watch([formData, emailType, incidentBridgeHtml, updateHtml], () => {
   if (emailType.value === "high_priority") {
     if (selectedTemplateId.value) {
       const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
@@ -908,6 +1049,7 @@ function saveDraft() {
     body: body.value,
     formData: formData.value,
     incidentBridgeHtml: incidentBridgeHtml.value,
+    updateHtml: updateHtml.value,
   };
   try {
     localStorage.setItem(draftKey(), JSON.stringify(draft));
@@ -937,6 +1079,7 @@ function loadDraft() {
     body.value = draft.body || "";
     formData.value = draft.formData || {};
     incidentBridgeHtml.value = draft.incidentBridgeHtml || "";
+    updateHtml.value = draft.updateHtml || "";
     isDirty.value = false;
     suppressDirty.value = false;
   } catch { /* ignore */ }
@@ -953,10 +1096,11 @@ function hasFormContent() {
   const subs = formData.value?.subscriptions || [];
   if (subs.some((s) => s.subscription_id || s.subscription_name)) return true;
   if (incidentBridgeHtml.value.trim()) return true;
+  if (updateHtml.value.trim()) return true;
   return false;
 }
 
-watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipientTags, recipientInput, ccTags, ccInput, body, formData], () => {
+watch([emailType, selectedTemplateId, selectedSignatureId, subject, recipientTags, recipientInput, ccTags, ccInput, body, formData, incidentBridgeHtml, updateHtml], () => {
   if (suppressDirty.value) return;
   if (hasFormContent()) isDirty.value = true;
 }, { deep: true, flush: "sync" });
@@ -994,6 +1138,16 @@ async function handleSend() {
     if (emailType.value === "high_priority") {
       payload.accounts = [];
       payload.subscriptions = [];
+      // Include ticket_id and form_data for incident_store upsert
+      const d = formData.value || {};
+      payload.ticket_id = d.ticket_id || "";
+      payload.form_data = {
+        ...d,
+        incidentBridgeHtml: incidentBridgeHtml.value,
+        updateHtml: updateHtml.value,
+        recipient: recipientTags.value.join(","),
+        cc: ccTags.value.join(","),
+      };
     } else if (emailType.value === "account") {
       payload.accounts = (formData.value.accounts || []).map((a) => ({
         account: a.account,
@@ -1400,6 +1554,7 @@ onBeforeRouteLeave((to, from, next) => {
   line-height: 1.7;
   color: #1d1d1f;
   word-break: break-word;
+  overflow-x: auto;
 }
 
 .preview-body :deep(a) {
@@ -1454,5 +1609,34 @@ onBeforeRouteLeave((to, from, next) => {
 
 .preview-btn-row {
   margin-bottom: 24px;
+}
+
+.lookup-section {
+  margin-bottom: 24px;
+}
+
+.lookup-row {
+  display: flex;
+  gap: 8px;
+}
+
+.lookup-hint {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.lookup-hint-success {
+  background: #f0f7ff;
+  color: #1a73e8;
+  border: 1px solid #c8ddf8;
+}
+
+.lookup-hint-warn {
+  background: #fff8e6;
+  color: #b06000;
+  border: 1px solid #f5d78e;
 }
 </style>

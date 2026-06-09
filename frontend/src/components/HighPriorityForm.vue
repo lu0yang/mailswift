@@ -61,6 +61,9 @@
       <n-input v-model:value="local.impact" placeholder="No impact" size="large" :input-props="{ autocomplete: 'off' }" />
     </div>
 
+    <!-- Slot for Update field (HP UPDATED) -->
+    <slot name="after-impact" />
+
     <!-- Operations Manager -->
     <div class="hp-field">
       <label class="hp-label">Operations Manager *</label>
@@ -79,12 +82,27 @@
       </div>
     </div>
 
-    <!-- Next Update -->
-    <div class="hp-field">
+    <!-- Slot for Update field (HP MITIGATED, after Operations Manager) -->
+    <slot name="after-operations" />
+
+    <!-- Next Update (INITIAL only) -->
+    <div v-if="local.status_prefix === 'INITIAL'" class="hp-field">
       <label class="hp-label">Next Update</label>
       <n-input v-model:value="local.next_update" placeholder="30 minutes" size="large" :input-props="{ autocomplete: 'off' }" />
     </div>
 
+    <!-- Resolution (MITIGATED only) -->
+    <div v-if="local.status_prefix === 'MITIGATED'" class="hp-field">
+      <label class="hp-label">Resolution *</label>
+      <n-input v-model:value="local.resolution" placeholder="如 Mitigated by itself." size="large" :input-props="{ autocomplete: 'off' }" />
+    </div>
+
+    <!-- End Date & Time (MITIGATED only) -->
+    <div v-if="local.status_prefix === 'MITIGATED'" class="hp-field">
+      <label class="hp-label">End Date &amp; Time *</label>
+      <n-input v-model:value="local.end_datetime" placeholder="MM/DD/YYYY HH:MM" size="large" :input-props="{ autocomplete: 'off' }" />
+      <span class="hp-hint">格式：Beijing Time(GMT+8) : MM/DD/YYYY HH:MM</span>
+    </div>
 
     <!-- ── Modals ── -->
 
@@ -283,6 +301,8 @@ const defaultFormData = {
   impact: "No impact",
   managers: activeTeam.value?.managers.map((m) => ({ ...m })) || [],
   next_update: "30 minutes",
+  resolution: "",
+  end_datetime: "Beijing Time(GMT+8) : ",
 };
 
 const local = reactive({ ...defaultFormData, ...(props.modelValue || {}) });
@@ -315,7 +335,15 @@ watch(() => props.modelValue, (val) => {
     Object.assign(local, defaultFormData);
     local.managers = activeTeam.value?.managers.map((m) => ({ ...m })) || [];
     nextTick(() => { suppressEmit = false; });
+    return;
   }
+  // Sync non-empty changes from parent (template switch, lookup fill)
+  suppressEmit = true;
+  Object.assign(local, val);
+  if (!local.managers || local.managers.length === 0) {
+    local.managers = activeTeam.value?.managers.map((m) => ({ ...m })) || [];
+  }
+  nextTick(() => { suppressEmit = false; });
 }, { deep: true });
 </script>
 

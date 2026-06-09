@@ -31,7 +31,7 @@
         <div class="record-main">
           <div class="record-left">
             <div class="record-type-badge" :class="item.email_type">
-              {{ item.email_type === 'account' ? '账号' : '订阅' }}
+              {{ item.email_type === 'account' ? '账号' : item.email_type === 'high_priority' ? 'HP' : '订阅' }}
             </div>
             <span class="record-recipient">{{ item.subject || '（无标题）' }}</span>
           </div>
@@ -115,6 +115,7 @@ const tabs = [
   { label: "全部", value: "" },
   { label: "账号", value: "account" },
   { label: "订阅", value: "subscription" },
+  { label: "HP", value: "high_priority" },
 ];
 
 onMounted(() => fetchHistory());
@@ -259,6 +260,11 @@ function formatTime(iso) {
 .record-type-badge.subscription {
   background: #f3e8ff;
   color: #7c3aed;
+}
+
+.record-type-badge.high_priority {
+  background: #ffe5e5;
+  color: #c00000;
 }
 
 .record-recipient {

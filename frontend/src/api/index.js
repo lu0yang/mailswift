@@ -93,6 +93,10 @@ export function deleteAccount(id) {
   return req(`/accounts/${id}`, { method: "DELETE" });
 }
 
+export function lookupIncident(ticketId) {
+  return req(`/incident-store/lookup?ticket_id=${encodeURIComponent(ticketId)}`);
+}
+
 export function resetApp() {
   return req("/reset", { method: "POST" });
 }
