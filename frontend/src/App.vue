@@ -5,7 +5,12 @@
       <div class="app-shell">
         <header class="app-header">
           <div class="header-left">
-            <span class="logo" @click="$router.push('/')">MailSwift</span>
+            <span class="logo" @click="$router.push('/account')">MailSwift</span>
+            <nav class="header-nav">
+              <router-link to="/account" class="nav-link" active-class="nav-link--active">账号</router-link>
+              <router-link to="/subscription" class="nav-link" active-class="nav-link--active">订阅</router-link>
+              <router-link to="/high-priority" class="nav-link" active-class="nav-link--active">HP</router-link>
+            </nav>
           </div>
           <div class="header-right">
             <n-popover trigger="click" placement="bottom-end" :width="260">
@@ -178,6 +183,12 @@ body {
   -webkit-app-region: drag;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
 .header-left .logo {
   font-size: 20px;
   font-weight: 700;
@@ -186,6 +197,32 @@ body {
   cursor: pointer;
   user-select: none;
   -webkit-app-region: no-drag;
+}
+
+.header-nav {
+  display: flex;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: #6e6e73;
+  text-decoration: none;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.nav-link:hover {
+  color: #1d1d1f;
+  background: #f5f5f7;
+}
+
+.nav-link--active {
+  color: #0071e3;
+  background: #e8f0fe;
 }
 
 .header-right {

@@ -1,10 +1,15 @@
 import { createRouter, createWebHashHistory } from "vue-router";
-import HomeView from "@/views/HomeView.vue";
+import AccountView from "@/views/AccountView.vue";
+import SubscriptionView from "@/views/SubscriptionView.vue";
+import HighPriorityView from "@/views/HighPriorityView.vue";
 import SettingsView from "@/views/SettingsView.vue";
 import HistoryView from "@/views/HistoryView.vue";
 
 const routes = [
-  { path: "/", name: "home", component: HomeView },
+  { path: "/", redirect: "/account" },
+  { path: "/account", name: "account", component: AccountView },
+  { path: "/subscription", name: "subscription", component: SubscriptionView },
+  { path: "/high-priority", name: "high-priority", component: HighPriorityView },
   { path: "/settings", name: "settings", component: SettingsView },
   { path: "/history", name: "history", component: HistoryView },
 ];
