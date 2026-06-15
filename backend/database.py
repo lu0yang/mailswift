@@ -1,19 +1,16 @@
-import sys
-from pathlib import Path
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Resolve DB path relative to the executable or source directory
-if getattr(sys, 'frozen', False):
-    BASE_DIR = Path(sys.executable).parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent.parent
+from .config import DATABASE_URL, ensure_database_exists
 
-DB_PATH = BASE_DIR / "mail_tool.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
-
-engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=3600,
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -27,5 +24,6 @@ def get_db():
 
 
 def init_db():
-    from .models import EmailHistory, Settings, IncidentStore  # noqa: F401
+    ensure_database_exists()
+    from .models import User, EmailHistory, Settings, IncidentStore  # noqa: F401
     Base.metadata.create_all(bind=engine)

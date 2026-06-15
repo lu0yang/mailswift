@@ -22,7 +22,7 @@
     <div class="hp-row">
       <div class="hp-field">
         <label class="hp-label">Category *</label>
-        <n-select v-model:value="local.category" :options="categoryOptions" placeholder="Network" size="large" tag filterable />
+        <n-input v-model:value="local.category" placeholder="Network" size="large" :input-props="{ autocomplete: 'off' }" />
       </div>
       <div class="hp-field">
         <label class="hp-label">Title *</label>
@@ -183,13 +183,6 @@ const severityOptions = [
   { label: "Sev0", value: "Sev0" },
   { label: "Sev1", value: "Sev1" },
   { label: "Sev2", value: "Sev2" },
-];
-
-const categoryOptions = [
-  { label: "Network", value: "Network" },
-  { label: "Compute", value: "Compute" },
-  { label: "Storage", value: "Storage" },
-  { label: "Database", value: "Database" },
 ];
 
 function todayStr() {

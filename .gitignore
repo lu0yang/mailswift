@@ -17,6 +17,9 @@ frontend/dist/
 # Database (local data)
 *.db
 
+# Environment config (contains real credentials)
+.env
+
 # Machine-specific key (generated on first run)
 backend/.machine_id
 

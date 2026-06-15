@@ -1,5 +1,11 @@
-import sys
+"""
+开发启动器：启动服务 + 自动打开浏览器。
+
+生产环境直接用 app.py 启动即可。
+"""
+
 import threading
+import webbrowser
 
 import uvicorn
 
@@ -8,7 +14,7 @@ def main():
     host = "127.0.0.1"
     port = 8080
 
-    # Start uvicorn in a background thread so it doesn't block the GUI
+    # 后台启动 FastAPI
     server_thread = threading.Thread(
         target=lambda: uvicorn.run(
             "backend.main:app",
@@ -20,16 +26,9 @@ def main():
     )
     server_thread.start()
 
-    # Launch native desktop window (no browser needed)
-    try:
-        import webview
-        webview.create_window("MailSwift", f"http://{host}:{port}", width=1200, height=800)
-        webview.start()
-    except ImportError:
-        # Fallback for development: open in browser
-        import webbrowser
-        webbrowser.open(f"http://{host}:{port}")
-        server_thread.join()
+    # 自动打开浏览器
+    webbrowser.open(f"http://{host}:{port}")
+    server_thread.join()
 
 
 if __name__ == "__main__":

@@ -14,13 +14,14 @@ from sqlalchemy.orm import Session
 
 from .database import init_db, get_db
 from .models import (
-    Settings, EmailHistory, EmailTemplate, Signature, IncidentStore,
+    Settings, EmailHistory, EmailTemplate, Signature, IncidentStore, User,
     DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
     DEFAULT_PASSWORD_RESET_TEMPLATE,
     DEFAULT_HP_INITIAL_TEMPLATE,
     DEFAULT_HP_UPDATED_TEMPLATE,
     DEFAULT_HP_MITIGATED_TEMPLATE,
 )
+from .auth import get_current_user
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_connection
 
@@ -66,6 +67,40 @@ def _migrate_schema(db: Session):
                     db.execute(sa.text(f"ALTER TABLE settings DROP COLUMN {col}"))
                 except Exception:
                     pass  # SQLite < 3.35 doesn't support DROP COLUMN; harmless
+
+    # ── Multi-user columns (added for MySQL migration) ──────
+
+    # user_id on settings (NOT NULL)
+    if "settings" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("settings")}
+        if "user_id" not in cols:
+            db.execute(sa.text("ALTER TABLE settings ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+
+    # user_id on email_templates (NULLABLE — public templates)
+    if "email_templates" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("email_templates")}
+        if "user_id" not in cols:
+            db.execute(sa.text("ALTER TABLE email_templates ADD COLUMN user_id INTEGER"))
+
+    # user_id on signatures (NOT NULL)
+    if "signatures" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("signatures")}
+        if "user_id" not in cols:
+            db.execute(sa.text("ALTER TABLE signatures ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+
+    # user_id on email_history (NOT NULL)
+    if "email_history" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("email_history")}
+        if "user_id" not in cols:
+            db.execute(sa.text("ALTER TABLE email_history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+
+    # created_by / updated_by on incident_store (NULLABLE)
+    if "incident_store" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("incident_store")}
+        if "created_by" not in cols:
+            db.execute(sa.text("ALTER TABLE incident_store ADD COLUMN created_by INTEGER"))
+        if "updated_by" not in cols:
+            db.execute(sa.text("ALTER TABLE incident_store ADD COLUMN updated_by INTEGER"))
 
     db.commit()
 
@@ -242,13 +277,19 @@ class SignatureResponse(BaseModel):
 # ── Settings APIs ───────────────────────────────────────
 
 
-def _get_active_settings(db: Session) -> Settings | None:
-    return db.query(Settings).filter(Settings.is_active == True).first()
+def _get_active_settings(db: Session, user: User) -> Settings | None:
+    return db.query(Settings).filter(
+        Settings.user_id == user.id,
+        Settings.is_active.is_(True),
+    ).first()
 
 
 @app.get("/api/settings", response_model=SettingsResponse)
-def get_settings(db: Session = Depends(get_db)):
-    s = _get_active_settings(db)
+def get_settings(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    s = _get_active_settings(db, user)
     if not s:
         return SettingsResponse(
             id=0, email_address="", password_masked="", label="", updated_at=None,
@@ -263,11 +304,18 @@ def get_settings(db: Session = Depends(get_db)):
 
 
 @app.post("/api/settings")
-def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
-    # Find existing account with same email, or create a new one
-    s = db.query(Settings).filter(Settings.email_address == payload.email_address).first()
+def update_settings(
+    payload: SettingsUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Find existing account with same email for this user, or create a new one
+    s = db.query(Settings).filter(
+        Settings.user_id == user.id,
+        Settings.email_address == payload.email_address,
+    ).first()
     if not s:
-        s = Settings()
+        s = Settings(user_id=user.id)
         db.add(s)
         s.is_active = False  # will be set to True below
     s.email_address = payload.email_address
@@ -275,10 +323,11 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
         s.encrypted_password = encrypt_password(payload.password)
     s.label = payload.label or payload.email_address
     s.updated_at = datetime.now(timezone(timedelta(hours=8)))
-    # Make this the active account
-    db.query(Settings).filter(Settings.is_active == True).update(
-        {"is_active": False}, synchronize_session=False
-    )
+    # Make this the active account (scoped to current user)
+    db.query(Settings).filter(
+        Settings.user_id == user.id,
+        Settings.is_active.is_(True),
+    ).update({"is_active": False}, synchronize_session=False)
     s.is_active = True
     db.commit()
     return {"ok": True, "id": s.id}
@@ -290,8 +339,12 @@ class TestConnectionRequest(BaseModel):
 
 
 @app.post("/api/settings/test-connection")
-def test_connection(data: TestConnectionRequest | None = None, db: Session = Depends(get_db)):
-    s = _get_active_settings(db)
+def test_connection(
+    data: TestConnectionRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    s = _get_active_settings(db, user)
 
     # Use request body params if provided, otherwise fall back to saved settings
     if data and data.email_address and data.password:
@@ -363,8 +416,12 @@ def encode_image(data: EncodeImageRequest):
 def list_templates(
     type: str | None = Query(None),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    q = db.query(EmailTemplate)
+    # 返回公共模板（user_id IS NULL）+ 当前用户的自定义模板
+    q = db.query(EmailTemplate).filter(
+        (EmailTemplate.user_id.is_(None)) | (EmailTemplate.user_id == user.id)
+    )
     if type:
         q = q.filter(EmailTemplate.type == type)
     items = q.order_by(EmailTemplate.created_at.desc()).all()
@@ -378,8 +435,15 @@ def list_templates(
 
 
 @app.post("/api/templates", response_model=TemplateResponse)
-def create_template(data: TemplateCreate, db: Session = Depends(get_db)):
-    t = EmailTemplate(name=data.name, type=data.type, content=data.content)
+def create_template(
+    data: TemplateCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 用户仅允许创建 account / subscription 类型的模板
+    if data.type not in ("account", "subscription"):
+        raise HTTPException(status_code=400, detail="仅允许创建 account 或 subscription 类型的模板")
+    t = EmailTemplate(user_id=user.id, name=data.name, type=data.type, content=data.content)
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -390,10 +454,21 @@ def create_template(data: TemplateCreate, db: Session = Depends(get_db)):
 
 
 @app.put("/api/templates/{template_id}", response_model=TemplateResponse)
-def update_template(template_id: int, data: TemplateUpdate, db: Session = Depends(get_db)):
+def update_template(
+    template_id: int,
+    data: TemplateUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     t = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="模板不存在")
+    # 公共模板禁止修改
+    if t.user_id is None:
+        raise HTTPException(status_code=403, detail="系统默认模板不可修改")
+    # 非所有者不可修改
+    if t.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权修改此模板")
     t.name = data.name
     t.content = data.content
     db.commit()
@@ -405,10 +480,20 @@ def update_template(template_id: int, data: TemplateUpdate, db: Session = Depend
 
 
 @app.delete("/api/templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     t = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="模板不存在")
+    # 公共模板禁止删除
+    if t.user_id is None:
+        raise HTTPException(status_code=403, detail="系统默认模板不可删除")
+    # 非所有者不可删除
+    if t.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权删除此模板")
     db.delete(t)
     db.commit()
     return {"ok": True}
@@ -418,8 +503,13 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/signatures", response_model=list[SignatureResponse])
-def list_signatures(db: Session = Depends(get_db)):
-    items = db.query(Signature).order_by(Signature.created_at.desc()).all()
+def list_signatures(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    items = db.query(Signature).filter(
+        Signature.user_id == user.id
+    ).order_by(Signature.created_at.desc()).all()
     return [
         SignatureResponse(
             id=s.id, name=s.name, content=s.content,
@@ -431,12 +521,17 @@ def list_signatures(db: Session = Depends(get_db)):
 
 
 @app.post("/api/signatures", response_model=SignatureResponse)
-def create_signature(data: SignatureCreate, db: Session = Depends(get_db)):
+def create_signature(
+    data: SignatureCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     if data.is_default:
-        db.query(Signature).filter(Signature.is_default == True).update(  # noqa: E712
-            {"is_default": False}, synchronize_session=False
-        )
-    s = Signature(name=data.name, content=data.content, is_default=data.is_default)
+        db.query(Signature).filter(
+            Signature.user_id == user.id,
+            Signature.is_default.is_(True),
+        ).update({"is_default": False}, synchronize_session=False)
+    s = Signature(user_id=user.id, name=data.name, content=data.content, is_default=data.is_default)
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -448,14 +543,23 @@ def create_signature(data: SignatureCreate, db: Session = Depends(get_db)):
 
 
 @app.put("/api/signatures/{signature_id}", response_model=SignatureResponse)
-def update_signature(signature_id: int, data: SignatureUpdate, db: Session = Depends(get_db)):
-    s = db.query(Signature).filter(Signature.id == signature_id).first()
+def update_signature(
+    signature_id: int,
+    data: SignatureUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    s = db.query(Signature).filter(
+        Signature.id == signature_id,
+        Signature.user_id == user.id,
+    ).first()
     if not s:
         raise HTTPException(status_code=404, detail="签名不存在")
     if data.is_default:
-        db.query(Signature).filter(Signature.is_default == True).update(  # noqa: E712
-            {"is_default": False}, synchronize_session=False
-        )
+        db.query(Signature).filter(
+            Signature.user_id == user.id,
+            Signature.is_default.is_(True),
+        ).update({"is_default": False}, synchronize_session=False)
     s.name = data.name
     s.content = data.content
     s.is_default = data.is_default
@@ -469,8 +573,15 @@ def update_signature(signature_id: int, data: SignatureUpdate, db: Session = Dep
 
 
 @app.delete("/api/signatures/{signature_id}")
-def delete_signature(signature_id: int, db: Session = Depends(get_db)):
-    s = db.query(Signature).filter(Signature.id == signature_id).first()
+def delete_signature(
+    signature_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    s = db.query(Signature).filter(
+        Signature.id == signature_id,
+        Signature.user_id == user.id,
+    ).first()
     if not s:
         raise HTTPException(status_code=404, detail="签名不存在")
     db.delete(s)
@@ -485,13 +596,14 @@ def _strip_html(html: str) -> str:
     return text.strip()
 
 
-def _upsert_incident(db: Session, ticket_id: str, form_data: dict | None):
+def _upsert_incident(db: Session, ticket_id: str, form_data: dict | None, user: User):
     """Insert or update an incident record in incident_store."""
     import json
     incident = db.query(IncidentStore).filter(IncidentStore.ticket_id == ticket_id).first()
     if incident:
         incident.form_data = json.dumps(form_data or {}, ensure_ascii=False)
         incident.updated_at = datetime.now(timezone(timedelta(hours=8)))
+        incident.updated_by = user.id
         # Update status from form_data if present
         if form_data and "status_prefix" in form_data:
             incident.status = form_data["status_prefix"]
@@ -500,6 +612,8 @@ def _upsert_incident(db: Session, ticket_id: str, form_data: dict | None):
             ticket_id=ticket_id,
             status=form_data.get("status_prefix", "INITIAL") if form_data else "INITIAL",
             form_data=json.dumps(form_data or {}, ensure_ascii=False),
+            created_by=user.id,
+            updated_by=user.id,
         )
         db.add(incident)
     db.commit()
@@ -509,8 +623,12 @@ def _upsert_incident(db: Session, ticket_id: str, form_data: dict | None):
 
 
 @app.post("/api/send")
-def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
-    s = _get_active_settings(db)
+def send_email_api(
+    data: SendEmailRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    s = _get_active_settings(db, user)
     if not s or not s.email_address or not s.encrypted_password:
         raise HTTPException(status_code=400, detail="请先在设置中配置邮箱凭据")
 
@@ -550,6 +668,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
     )
 
     record = EmailHistory(
+        user_id=user.id,
         email_type=data.email_type,
         recipient=data.recipient,
         cc=data.cc,
@@ -567,7 +686,7 @@ def send_email_api(data: SendEmailRequest, db: Session = Depends(get_db)):
 
     # Upsert incident_store for HP emails
     if data.email_type == "high_priority" and data.ticket_id:
-        _upsert_incident(db, data.ticket_id, data.form_data)
+        _upsert_incident(db, data.ticket_id, data.form_data, user)
 
     return {"ok": True, "history_id": record.id}
 
@@ -581,8 +700,9 @@ def get_history(
     page_size: int = Query(20, ge=1, le=100),
     email_type: str | None = Query(None),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    q = db.query(EmailHistory)
+    q = db.query(EmailHistory).filter(EmailHistory.user_id == user.id)
     if email_type:
         q = q.filter(EmailHistory.email_type == email_type)
 
@@ -615,8 +735,15 @@ def get_history(
 
 
 @app.delete("/api/history/{record_id}")
-def delete_history(record_id: int, db: Session = Depends(get_db)):
-    record = db.query(EmailHistory).filter(EmailHistory.id == record_id).first()
+def delete_history(
+    record_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    record = db.query(EmailHistory).filter(
+        EmailHistory.id == record_id,
+        EmailHistory.user_id == user.id,
+    ).first()
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
     db.delete(record)
@@ -625,12 +752,15 @@ def delete_history(record_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/reset")
-def reset_app(db: Session = Depends(get_db)):
+def reset_app(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """Reset the application to factory defaults: clear credentials from the
-    active account, delete all templates/signatures/history, and re-create
-    default templates."""
+    active account, delete all templates/signatures/history for the current user,
+    and re-create default templates if missing."""
     # Clear active account credentials
-    s = _get_active_settings(db)
+    s = _get_active_settings(db, user)
     if s:
         s.encrypted_password = ""
         s.email_address = ""
@@ -638,13 +768,15 @@ def reset_app(db: Session = Depends(get_db)):
         s.updated_at = datetime.now(timezone(timedelta(hours=8)))
         db.flush()
 
-    # Delete all user data
-    db.query(EmailHistory).delete()
-    db.query(Signature).delete()
-    db.query(EmailTemplate).delete()
+    # Delete current user's data (not public templates)
+    db.query(EmailHistory).filter(EmailHistory.user_id == user.id).delete()
+    db.query(Signature).filter(Signature.user_id == user.id).delete()
+    db.query(EmailTemplate).filter(
+        EmailTemplate.user_id == user.id
+    ).delete(synchronize_session=False)
     db.flush()
 
-    # Re-create default templates
+    # Re-create default templates if missing (public, user_id=NULL)
     _migrate_templates(db)
 
     return {"ok": True}
@@ -654,8 +786,14 @@ def reset_app(db: Session = Depends(get_db)):
 
 
 @app.get("/api/accounts", response_model=list[AccountListItem])
-def list_accounts(db: Session = Depends(get_db)):
-    items = db.query(Settings).filter(Settings.email_address != "").order_by(Settings.updated_at.desc()).all()
+def list_accounts(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    items = db.query(Settings).filter(
+        Settings.user_id == user.id,
+        Settings.email_address != "",
+    ).order_by(Settings.updated_at.desc()).all()
     return [
         AccountListItem(
             id=a.id,
@@ -668,21 +806,36 @@ def list_accounts(db: Session = Depends(get_db)):
 
 
 @app.post("/api/accounts/{account_id}/switch")
-def switch_account(account_id: int, db: Session = Depends(get_db)):
-    a = db.query(Settings).filter(Settings.id == account_id).first()
+def switch_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    a = db.query(Settings).filter(
+        Settings.id == account_id,
+        Settings.user_id == user.id,
+    ).first()
     if not a:
         raise HTTPException(status_code=404, detail="账户不存在")
-    db.query(Settings).filter(Settings.is_active == True).update(
-        {"is_active": False}, synchronize_session=False
-    )
+    db.query(Settings).filter(
+        Settings.user_id == user.id,
+        Settings.is_active.is_(True),
+    ).update({"is_active": False}, synchronize_session=False)
     a.is_active = True
     db.commit()
     return {"ok": True}
 
 
 @app.delete("/api/accounts/{account_id}")
-def delete_account(account_id: int, db: Session = Depends(get_db)):
-    a = db.query(Settings).filter(Settings.id == account_id).first()
+def delete_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    a = db.query(Settings).filter(
+        Settings.id == account_id,
+        Settings.user_id == user.id,
+    ).first()
     if not a:
         raise HTTPException(status_code=404, detail="账户不存在")
     db.delete(a)
@@ -694,11 +847,18 @@ def delete_account(account_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/incident-store/lookup")
-def lookup_incident(ticket_id: str = Query(...), db: Session = Depends(get_db)):
-    """Look up a previous incident by ticket_id."""
+def lookup_incident(
+    ticket_id: str = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Look up a previous incident by ticket_id, update last editor."""
     incident = db.query(IncidentStore).filter(IncidentStore.ticket_id == ticket_id).first()
     if not incident:
         return {"ok": False, "detail": f"未找到关联事件 [{ticket_id}]，请手动填写表单信息"}
+    # Record who accessed this incident (last viewer)
+    incident.updated_by = user.id
+    db.commit()
     try:
         import json
         form_data = json.loads(incident.form_data)

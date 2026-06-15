@@ -1,94 +1,47 @@
 """
-MailSwift - PyWebview desktop application entry point.
+MailSwift - Web application entry point.
 
-Launches a local FastAPI server and displays the Vue frontend
-in a native webview window.
+启动 FastAPI 服务（含前端静态文件服务）。
+可通过环境变量 API_HOST / API_PORT 配置监听地址。
 """
 
 import os
 import sys
-import threading
-import time
 import logging
 from pathlib import Path
 
-import requests
-import webview
 import uvicorn
 
 from backend.database import init_db
-from backend.main import app as fastapi_app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Resolve paths
+# 路径解析（兼容 PyInstaller 打包）
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
 else:
     BASE_DIR = Path(__file__).resolve().parent
 
-FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
-API_PORT = 8080
-
-
-def serve_frontend_asset(path: str) -> str:
-    """Read a built frontend asset and return its content."""
-    file_path = FRONTEND_DIST / path
-    if file_path.exists():
-        return file_path.read_text(encoding="utf-8")
-    return ""
-
-
-def get_frontend_html() -> str:
-    """Load the built index.html and inject base href for file:// compatibility."""
-    index_path = FRONTEND_DIST / "index.html"
-    if not index_path.exists():
-        return "<h1>Frontend not built. Run: cd frontend && npm run build</h1>"
-
-    html = index_path.read_text(encoding="utf-8")
-    # Replace relative paths with inline content for webview compatibility
-    html = html.replace('./assets/', str(FRONTEND_DIST / 'assets' / ''))
-    return html
-
-
-def start_api_server():
-    """Start the FastAPI server in a daemon thread."""
-    init_db()
-    uvicorn.run(fastapi_app, host="127.0.0.1", port=API_PORT, log_level="warning")
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("API_PORT", "8080"))
 
 
 def main():
-    logger.info("Starting MailSwift...")
+    logger.info("MailSwift 服务启动中...")
 
-    # Start FastAPI in background thread
-    api_thread = threading.Thread(target=start_api_server, daemon=True)
-    api_thread.start()
+    # 初始化数据库（自动建库 + 建表 + 迁移）
+    init_db()
+    logger.info("数据库初始化完成")
 
-    # Wait for the API server to become ready before opening the window
-    health_url = f"http://127.0.0.1:{API_PORT}/api/health"
-    for _ in range(30):  # up to 3 seconds
-        try:
-            resp = requests.get(health_url, timeout=0.3)
-            if resp.status_code == 200:
-                logger.info("API server ready")
-                break
-        except Exception:
-            pass
-        time.sleep(0.1)
-    else:
-        logger.warning("API server not ready after waiting; opening window anyway")
-
-    # Create and show the webview window
-    window = webview.create_window(
-        title="MailSwift",
-        url=f"http://127.0.0.1:{API_PORT}",
-        width=860,
-        height=680,
-        min_size=(720, 540),
-        resizable=True,
+    # 启动 HTTP 服务（FastAPI 内置前端静态文件服务）
+    logger.info("监听: http://%s:%s", API_HOST, API_PORT)
+    uvicorn.run(
+        "backend.main:app",
+        host=API_HOST,
+        port=API_PORT,
+        log_level="warning",
     )
-    webview.start(debug=False)
 
 
 if __name__ == "__main__":

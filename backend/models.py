@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
 from .database import Base
 
 
@@ -37,10 +37,23 @@ DEFAULT_PASSWORD_RESET_TEMPLATE = (
 )
 
 
-class Settings(Base):
-    __tablename__ = "settings"
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    external_id = Column(String(255), unique=True, nullable=True)
+    display_name = Column(String(255), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
+
+
+class Settings(Base):
+    __tablename__ = "settings"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     email_address = Column(String(255), default="")
     encrypted_password = Column(Text, default="")
     label = Column(String(100), default="")
@@ -51,8 +64,10 @@ class Settings(Base):
 
 class EmailTemplate(Base):
     __tablename__ = "email_templates"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     name = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)
     content = Column(Text, default="")
@@ -61,8 +76,10 @@ class EmailTemplate(Base):
 
 class Signature(Base):
     __tablename__ = "signatures"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(255), nullable=False)
     content = Column(Text, default="")
     is_default = Column(Boolean, default=False)
@@ -71,8 +88,10 @@ class Signature(Base):
 
 class EmailHistory(Base):
     __tablename__ = "email_history"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     email_type = Column(String(50), nullable=False)
     recipient = Column(String(255), nullable=False)
     cc = Column(Text, default="")
@@ -86,9 +105,12 @@ class EmailHistory(Base):
 
 class IncidentStore(Base):
     __tablename__ = "incident_store"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     ticket_id = Column(String(100), unique=True, nullable=False)
     status = Column(String(50), default="INITIAL")
     form_data = Column(Text, default="{}")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
