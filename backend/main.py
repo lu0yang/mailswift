@@ -361,7 +361,7 @@ def test_connection(
 
     success, error_msg = verify_connection(addr, pwd)
     if not success:
-        raise HTTPException(status_code=400, detail="连接失败")
+        raise HTTPException(status_code=400, detail=f"连接失败：{error_msg}")
     return {"ok": True}
 
 
