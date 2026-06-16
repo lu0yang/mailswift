@@ -118,6 +118,8 @@ async function handleSwitchAccount(acct) {
 
 function handleLogout() {
   removeToken();
+  userEmail.value = "";
+  userDisplayName.value = "";
   router.replace("/login");
 }
 
