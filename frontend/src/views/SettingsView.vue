@@ -19,10 +19,11 @@
           <div class="card-info">
             <span class="card-name">{{ t.name }}</span>
             <span class="card-type">{{ typeLabel(t.type) }}</span>
+            <span v-if="t.is_public" class="card-badge">公共</span>
           </div>
           <div class="card-actions">
-            <n-button text size="tiny" @click="openTemplateEditor(t)">编辑</n-button>
-            <n-button text size="tiny" type="error" @click="deleteTemplateItem(t.id)">删除</n-button>
+            <n-button v-if="!t.is_public" text size="tiny" @click="openTemplateEditor(t)">编辑</n-button>
+            <n-button v-if="!t.is_public" text size="tiny" type="error" @click="deleteTemplateItem(t.id)">删除</n-button>
           </div>
         </div>
       </n-tab-pane>
@@ -126,7 +127,7 @@ const tplEditId = ref(null);
 const tplForm = reactive({ name: "", type: "account", content: "" });
 
 async function loadTemplates() {
-  try { const { data } = await getTemplates(); templates.value = data.filter(t => t.id > 6); } catch { /* */ }
+  try { const { data } = await getTemplates(); templates.value = data; } catch { /* */ }
 }
 
 function openTemplateEditor(tpl) {
