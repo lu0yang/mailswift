@@ -21,22 +21,20 @@ DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "3306")
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASS = os.getenv("DB_PASS", "")
-DB_NAME = os.getenv("DB_NAME", "mailswift")
+DB_NAME = os.getenv("DB_NAME", "aped8")
 
 DATABASE_URL = (
     f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     f"?charset=utf8mb4"
 )
 
-# 不指定数据库的 URL，用于建库操作
-_SERVER_URL = (
-    f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/"
-    f"?charset=utf8mb4"
-)
-
 
 def ensure_database_exists():
-    """如果目标数据库不存在则自动创建。"""
+    """如果目标数据库不存在则自动创建（需要 CREATE DATABASE 权限）。"""
+    _SERVER_URL = (
+        f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/"
+        f"?charset=utf8mb4"
+    )
     tmp_engine = create_engine(_SERVER_URL, echo=False)
     try:
         with tmp_engine.connect() as conn:
@@ -45,5 +43,7 @@ def ensure_database_exists():
                 f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
         logger.info("数据库 '%s' 已就绪", DB_NAME)
+    except Exception:
+        logger.info("数据库 '%s' 已存在或无建库权限，跳过", DB_NAME)
     finally:
         tmp_engine.dispose()

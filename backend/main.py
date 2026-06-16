@@ -42,14 +42,14 @@ def _migrate_schema(db: Session):
     insp = sa.inspect(db.get_bind())
 
     # email_history table
-    if "email_history" in insp.get_table_names():
-        history_cols = {c["name"] for c in insp.get_columns("email_history")}
+    if "msw_history" in insp.get_table_names():
+        history_cols = {c["name"] for c in insp.get_columns("msw_history")}
         if "template_id" not in history_cols:
             db.execute(sa.text("ALTER TABLE email_history ADD COLUMN template_id INTEGER"))
 
     # settings table — add account-switching columns
-    if "settings" in insp.get_table_names():
-        settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    if "msw_settings" in insp.get_table_names():
+        settings_cols = {c["name"] for c in insp.get_columns("msw_settings")}
         if "label" not in settings_cols:
             db.execute(sa.text("ALTER TABLE settings ADD COLUMN label VARCHAR(100) DEFAULT ''"))
         if "is_active" not in settings_cols:
@@ -58,8 +58,8 @@ def _migrate_schema(db: Session):
             db.execute(sa.text("UPDATE settings SET is_active = 1 WHERE email_address != '' AND is_active = 0"))
 
     # settings table — drop legacy smtp columns (cleanup after EWS migration)
-    if "settings" in insp.get_table_names():
-        settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    if "msw_settings" in insp.get_table_names():
+        settings_cols = {c["name"] for c in insp.get_columns("msw_settings")}
         for col in ("smtp_host", "smtp_port", "imap_host", "imap_port",
                      "account_template", "subscription_template"):
             if col in settings_cols:
@@ -71,32 +71,32 @@ def _migrate_schema(db: Session):
     # ── Multi-user columns (added for MySQL migration) ──────
 
     # user_id on settings (NOT NULL)
-    if "settings" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("settings")}
+    if "msw_settings" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_settings")}
         if "user_id" not in cols:
             db.execute(sa.text("ALTER TABLE settings ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
 
     # user_id on email_templates (NULLABLE — public templates)
-    if "email_templates" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("email_templates")}
+    if "msw_templates" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_templates")}
         if "user_id" not in cols:
             db.execute(sa.text("ALTER TABLE email_templates ADD COLUMN user_id INTEGER"))
 
     # user_id on signatures (NOT NULL)
-    if "signatures" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("signatures")}
+    if "msw_signatures" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_signatures")}
         if "user_id" not in cols:
             db.execute(sa.text("ALTER TABLE signatures ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
 
     # user_id on email_history (NOT NULL)
-    if "email_history" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("email_history")}
+    if "msw_history" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_history")}
         if "user_id" not in cols:
             db.execute(sa.text("ALTER TABLE email_history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
 
     # created_by / updated_by on incident_store (NULLABLE)
-    if "incident_store" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("incident_store")}
+    if "msw_incident" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_incident")}
         if "created_by" not in cols:
             db.execute(sa.text("ALTER TABLE incident_store ADD COLUMN created_by INTEGER"))
         if "updated_by" not in cols:
