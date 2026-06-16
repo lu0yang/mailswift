@@ -720,8 +720,10 @@ def send_email_api(
     user: User = Depends(get_current_user),
 ):
     s = _get_active_settings(db, user)
-    if not s or not s.email_address or not s.encrypted_password:
-        raise HTTPException(status_code=400, detail="请先在设置中配置邮箱凭据")
+    if not s:
+        raise HTTPException(status_code=400, detail="请先在设置中添加发件邮箱")
+    if not s.email_address or not s.encrypted_password:
+        raise HTTPException(status_code=400, detail=f"当前发件账户「{s.email_address or '(空)'}」未配置密码，请去设置页为它填写密码")
 
     body_html = data.body
 
