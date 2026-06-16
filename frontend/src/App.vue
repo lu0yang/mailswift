@@ -134,6 +134,8 @@ function handleLogout() {
 
 provide("refreshAccount", refreshAccount);
 provide("userEmail", userEmail);
+provide("accountEmail", activeSender);
+provide("accountExpired", ref(false));
 
 onMounted(() => {
   if (isLoggedIn()) {
