@@ -35,6 +35,7 @@
                 </div>
                 <div v-if="!accounts.length" class="switcher-empty">暂无已保存的账户</div>
                 <div class="switcher-footer">
+                  <div class="switcher-login">登录身份: {{ userEmail }}</div>
                   <n-button text size="tiny" @click="$router.push('/settings')">管理账户</n-button>
                 </div>
               </div>
@@ -72,16 +73,17 @@ const router = useRouter();
 
 const userEmail = ref("");
 const userDisplayName = ref("");
+const activeSender = ref("");       // 当前激活的发件邮箱
 const accountId = ref(0);
 const accounts = ref([]);
 const switching = ref(false);
 
 const accountLabel = computed(() => {
-  return userDisplayName.value || userEmail.value || "未登录";
+  return activeSender.value || userDisplayName.value || userEmail.value || "未登录";
 });
 
 const accountClass = computed(() => {
-  return userEmail.value ? "ok" : "none";
+  return activeSender.value ? "ok" : "none";
 });
 
 async function fetchUser() {
@@ -100,8 +102,10 @@ async function refreshAccount() {
   try {
     const { data } = await getSettings();
     accountId.value = data.id || 0;
+    activeSender.value = data.email_address || "";
   } catch {
     accountId.value = 0;
+    activeSender.value = "";
   }
   // Also load all accounts for the switcher
   try {
@@ -358,5 +362,11 @@ body {
   border-top: 1px solid #f0f0f0;
   margin-top: 4px;
   padding: 8px 12px 0;
+}
+
+.switcher-login {
+  font-size: 12px;
+  color: #a1a1a6;
+  margin-bottom: 8px;
 }
 </style>
