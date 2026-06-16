@@ -325,6 +325,28 @@ def api_register(data: RegisterRequest, db: Session = Depends(get_db)):
     if not token:
         raise HTTPException(status_code=400, detail="该邮箱已注册")
     user = db.query(User).filter(User.email == data.email).first()
+
+    # 自动创建发件账户配置：注册时填的邮箱+密码即用于 EWS 发信
+    settings = db.query(Settings).filter(
+        Settings.user_id == user.id,
+        Settings.email_address == data.email,
+    ).first()
+    if not settings:
+        # 将该用户其他账户取消激活
+        db.query(Settings).filter(
+            Settings.user_id == user.id,
+            Settings.is_active.is_(True),
+        ).update({"is_active": False}, synchronize_session=False)
+        settings = Settings(
+            user_id=user.id,
+            email_address=data.email,
+            encrypted_password=encrypt_password(data.password),
+            label=data.email,
+            is_active=True,
+        )
+        db.add(settings)
+        db.commit()
+
     return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
 
 
