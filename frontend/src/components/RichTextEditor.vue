@@ -331,6 +331,7 @@ onBeforeUnmount(() => {
 .rte-content {
   padding: 12px 14px;
   min-height: 100px;
+  font-family: Calibri, "Segoe UI", sans-serif;
   font-size: 16px;
   line-height: 1.7;
   color: #1d1d1f;
