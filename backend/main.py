@@ -342,6 +342,7 @@ def create_template(
     return TemplateResponse(
         id=t.id, name=t.name, type=t.type, content=t.content,
         created_at=t.created_at.isoformat() if t.created_at else "",
+        is_public=t.user_id is None,
     )
 
 
@@ -368,6 +369,7 @@ def update_template(
     return TemplateResponse(
         id=t.id, name=t.name, type=t.type, content=t.content,
         created_at=t.created_at.isoformat() if t.created_at else "",
+        is_public=t.user_id is None,
     )
 
 
