@@ -35,6 +35,7 @@
               <div class="list-card-left">
                 <span class="type-badge" :class="t.type">{{ t.type === 'account' ? '账号' : t.type === 'subscription' ? '订阅' : 'HP' }}</span>
                 <span class="list-card-name">{{ t.name }}</span>
+                <span v-if="t.is_public" class="public-badge">公共</span>
               </div>
               <div v-if="!t.is_public" class="list-card-right">
                 <n-button text size="tiny" @click="openTemplateModal(t)">编辑</n-button>
@@ -914,6 +915,14 @@ async function handleDeleteSignature(id) {
   border-radius: 5px;
   background: #e8f8ed;
   color: #34c759;
+}
+
+.public-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #fff3e0;
+  color: #e67e00;
 }
 
 .list-card-right {
