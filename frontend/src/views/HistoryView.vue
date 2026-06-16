@@ -44,6 +44,10 @@
         </div>
         <div v-if="expandedId === item.id" class="record-detail">
           <div class="detail-row">
+            <span class="detail-label">发件地址</span>
+            <span>{{ item.sender || '—' }}</span>
+          </div>
+          <div class="detail-row">
             <span class="detail-label">收件人</span>
             <span>{{ item.recipient }}</span>
           </div>

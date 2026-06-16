@@ -225,6 +225,7 @@ class SendEmailRequest(BaseModel):
 class HistoryResponse(BaseModel):
     id: int
     email_type: str
+    sender: str
     recipient: str
     cc: str
     subject: str
@@ -818,6 +819,7 @@ def get_history(
             HistoryResponse(
                 id=item.id,
                 email_type=item.email_type,
+                sender=item.sender or "",
                 recipient=item.recipient,
                 cc=item.cc or "",
                 subject=item.subject or "",
