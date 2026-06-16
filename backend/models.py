@@ -43,22 +43,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False)
-    password_hash = Column(String(255), nullable=True)
     display_name = Column(String(255), default="")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
-
-
-class Settings(Base):
-    __tablename__ = "msw_settings"
-    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("msw_users.id"), nullable=False)
-    email_address = Column(String(255), default="")
-    encrypted_password = Column(Text, default="")
-    label = Column(String(100), default="")
-    is_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 
@@ -92,7 +77,6 @@ class EmailHistory(Base):
     __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("msw_users.id"), nullable=False)
     sender = Column(String(255), default="")
     email_type = Column(String(50), nullable=False)
     recipient = Column(String(255), nullable=False)

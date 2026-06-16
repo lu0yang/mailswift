@@ -340,7 +340,7 @@ import { sendEmail, getTemplates, getSignatures, lookupIncident } from "@/api";
 const message = useMessage();
 const dialog = useDialog();
 const accountEmail = inject("accountEmail", ref(""));
-const accountExpired = inject("accountExpired", ref(false));
+
 const emailType = ref("account");
 const selectedTemplateId = ref(null);
 const selectedSignatureId = ref(null);
@@ -638,7 +638,7 @@ function renderHighPriorityBody(templateContent) {
 const sendHints = computed(() => {
   const hints = [];
   if (!accountEmail.value) hints.push("请先在设置中配置邮箱凭据");
-  else if (accountExpired.value) hints.push("凭据已过期，请更新密码");
+
   if (emailType.value !== "high_priority" && !subject.value) hints.push("请填写邮件标题");
   if (!body.value.trim()) hints.push("请填写邮件正文");
   if (!recipientTags.value.length) hints.push("请添加至少一个收件人");

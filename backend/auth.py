@@ -1,13 +1,11 @@
 """
 用户认证模块
 
-- 独立登录: email + password → JWT
-- 同事跳转: email + api_key → JWT（服务器间调用）
-- API 鉴权: 从 Authorization header 解析 JWT
+登录：email + password → 连 EWS 验证 → 签发 JWT
+后续请求：Authorization header 携带 JWT → 验签即可
+密码不存数据库，仅在浏览器 sessionStorage 中保留本次会话。
 """
 
-import hashlib
-import os
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -15,32 +13,13 @@ import jwt as pyjwt
 from fastapi import Request, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS, AUTO_LOGIN_API_KEY
+from .config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS
 from .database import get_db
 from .models import User
+from .mail_sender import verify_connection
 
 logger = logging.getLogger(__name__)
-
 _TZ = timezone(timedelta(hours=8))
-
-
-def hash_password(password: str) -> str:
-    """PBKDF2-SHA256 哈希密码。"""
-    salt = os.urandom(32)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
-    return salt.hex() + ":" + key.hex()
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    """验证密码是否匹配哈希值。"""
-    try:
-        salt_hex, key_hex = hashed.split(":")
-        salt = bytes.fromhex(salt_hex)
-        key = bytes.fromhex(key_hex)
-        new_key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
-        return new_key == key
-    except Exception:
-        return False
 
 
 def create_jwt(user_id: int, email: str) -> str:
@@ -79,24 +58,14 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-def login_user(db: Session, email: str, password: str) -> str | None:
-    """邮箱+密码登录，成功返回 JWT，失败返回 None。"""
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not user.password_hash:
-        return None
-    if not verify_password(password, user.password_hash):
-        return None
-    user.updated_at = datetime.now(_TZ)
-    db.commit()
-    return create_jwt(user.id, user.email)
-
-
-def auto_login_user(db: Session, email: str, api_key: str) -> str | None:
+def login_or_register(db: Session, email: str, password: str) -> str | None:
     """
-    同事系统自动登录：验证 api_key + 查/建用户，返回 JWT。
-    api_key 不匹配返回 None。
+    登录/注册：用 email + password 连接 EWS 验证身份。
+    成功则查找或创建用户，返回 JWT。
+    失败返回 None。
     """
-    if api_key != AUTO_LOGIN_API_KEY:
+    success, _ = verify_connection(email, password)
+    if not success:
         return None
 
     user = db.query(User).filter(User.email == email).first()
@@ -106,25 +75,8 @@ def auto_login_user(db: Session, email: str, api_key: str) -> str | None:
         db.add(user)
         db.commit()
         db.refresh(user)
-        logger.info("自动注册用户: email=%s, id=%s", email, user.id)
+        logger.info("新用户注册: email=%s, id=%s", email, user.id)
 
     user.updated_at = datetime.now(_TZ)
     db.commit()
-    return create_jwt(user.id, user.email)
-
-
-def register_user(db: Session, email: str, password: str) -> str | None:
-    """用户自助注册，邮箱已存在则返回 None。"""
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        return None
-    display_name = email.split("@")[0] if "@" in email else email
-    user = User(
-        email=email,
-        password_hash=hash_password(password),
-        display_name=display_name,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
     return create_jwt(user.id, user.email)

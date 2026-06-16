@@ -200,7 +200,7 @@ import { useRecipients } from '@/composables/useRecipients'
 
 const message = useMessage()
 const accountEmail = inject('accountEmail', ref(''))
-const accountExpired = inject('accountExpired', ref(false))
+
 
 // ── Composables ──
 const draft = useDraft('high_priority')
@@ -454,7 +454,7 @@ function onTemplateChange(id) {
 const sendHints = computed(() => {
   const hints = []
   if (!accountEmail.value) hints.push('请先在设置中配置邮箱凭据')
-  else if (accountExpired.value) hints.push('凭据已过期，请更新密码')
+
   if (!recip.tags.value.length) hints.push('请添加至少一个收件人')
   else if (recip.error.value) hints.push(recip.error.value)
   if (recip.ccError.value) hints.push(recip.ccError.value)

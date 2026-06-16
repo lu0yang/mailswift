@@ -14,19 +14,15 @@ from sqlalchemy.orm import Session
 
 from .database import init_db, get_db
 from .models import (
-    Settings, EmailHistory, EmailTemplate, Signature, IncidentStore, User,
+    EmailHistory, EmailTemplate, Signature, IncidentStore, User,
     DEFAULT_ACCOUNT_TEMPLATE, DEFAULT_SUBSCRIPTION_TEMPLATE,
     DEFAULT_PASSWORD_RESET_TEMPLATE,
     DEFAULT_HP_INITIAL_TEMPLATE,
     DEFAULT_HP_UPDATED_TEMPLATE,
     DEFAULT_HP_MITIGATED_TEMPLATE,
 )
-from .auth import (
-    get_current_user, login_user, auto_login_user, register_user,
-    hash_password,
-)
-from .crypto_utils import encrypt_password, decrypt_password
-from .mail_sender import send_email, verify_connection
+from .auth import get_current_user, login_or_register
+from .mail_sender import send_email
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys._MEIPASS)
@@ -44,68 +40,33 @@ def _migrate_schema(db: Session):
     import sqlalchemy as sa
     insp = sa.inspect(db.get_bind())
 
-    # email_history table
-    if "msw_history" in insp.get_table_names():
-        history_cols = {c["name"] for c in insp.get_columns("msw_history")}
-        if "template_id" not in history_cols:
-            db.execute(sa.text("ALTER TABLE email_history ADD COLUMN template_id INTEGER"))
-
-    # settings table — add account-switching columns
-    if "msw_settings" in insp.get_table_names():
-        settings_cols = {c["name"] for c in insp.get_columns("msw_settings")}
-        if "label" not in settings_cols:
-            db.execute(sa.text("ALTER TABLE settings ADD COLUMN label VARCHAR(100) DEFAULT ''"))
-        if "is_active" not in settings_cols:
-            db.execute(sa.text("ALTER TABLE settings ADD COLUMN is_active BOOLEAN DEFAULT 0"))
-            # First-time migration: mark the existing account as active
-            db.execute(sa.text("UPDATE settings SET is_active = 1 WHERE email_address != '' AND is_active = 0"))
-
-    # settings table — drop legacy smtp columns (cleanup after EWS migration)
-    if "msw_settings" in insp.get_table_names():
-        settings_cols = {c["name"] for c in insp.get_columns("msw_settings")}
-        for col in ("smtp_host", "smtp_port", "imap_host", "imap_port",
-                     "account_template", "subscription_template"):
-            if col in settings_cols:
-                try:
-                    db.execute(sa.text(f"ALTER TABLE settings DROP COLUMN {col}"))
-                except Exception:
-                    pass  # SQLite < 3.35 doesn't support DROP COLUMN; harmless
-
-    # ── Multi-user columns (added for MySQL migration) ──────
-
-    # user_id on settings (NOT NULL)
-    if "msw_settings" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("msw_settings")}
-        if "user_id" not in cols:
-            db.execute(sa.text("ALTER TABLE settings ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
-
-    # user_id on email_templates (NULLABLE — public templates)
-    if "msw_templates" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("msw_templates")}
-        if "user_id" not in cols:
-            db.execute(sa.text("ALTER TABLE email_templates ADD COLUMN user_id INTEGER"))
-
-    # user_id on signatures (NOT NULL)
-    if "msw_signatures" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("msw_signatures")}
-        if "user_id" not in cols:
-            db.execute(sa.text("ALTER TABLE signatures ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
-
-    # user_id on email_history (NOT NULL)
+    # email_history: add template_id (legacy)
     if "msw_history" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("msw_history")}
-        if "user_id" not in cols:
-            db.execute(sa.text("ALTER TABLE msw_history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+        if "template_id" not in cols:
+            db.execute(sa.text("ALTER TABLE msw_history ADD COLUMN template_id INTEGER"))
         if "sender" not in cols:
             db.execute(sa.text("ALTER TABLE msw_history ADD COLUMN sender VARCHAR(255) DEFAULT ''"))
 
-    # created_by / updated_by on incident_store (NULLABLE)
+    # email_templates: add user_id (legacy)
+    if "msw_templates" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_templates")}
+        if "user_id" not in cols:
+            db.execute(sa.text("ALTER TABLE msw_templates ADD COLUMN user_id INTEGER"))
+
+    # signatures: add user_id (legacy)
+    if "msw_signatures" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("msw_signatures")}
+        if "user_id" not in cols:
+            db.execute(sa.text("ALTER TABLE msw_signatures ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+
+    # incident_store: add created_by / updated_by (legacy)
     if "msw_incident" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("msw_incident")}
         if "created_by" not in cols:
-            db.execute(sa.text("ALTER TABLE incident_store ADD COLUMN created_by INTEGER"))
+            db.execute(sa.text("ALTER TABLE msw_incident ADD COLUMN created_by INTEGER"))
         if "updated_by" not in cols:
-            db.execute(sa.text("ALTER TABLE incident_store ADD COLUMN updated_by INTEGER"))
+            db.execute(sa.text("ALTER TABLE msw_incident ADD COLUMN updated_by INTEGER"))
 
     db.commit()
 
@@ -170,25 +131,21 @@ app.add_middleware(
 # ── Pydantic schemas ────────────────────────────────────
 
 
-class SettingsUpdate(BaseModel):
-    email_address: str = ""
-    password: str = ""
-    label: str = ""
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
-class SettingsResponse(BaseModel):
+class AuthResponse(BaseModel):
+    token: str
+    email: str
+    display_name: str
+
+
+class MeResponse(BaseModel):
     id: int
-    email_address: str
-    password_masked: str
-    label: str
-    updated_at: str | None
-
-
-class AccountListItem(BaseModel):
-    id: int
-    email_address: str
-    label: str
-    is_active: bool
+    email: str
+    display_name: str
 
 
 class AccountItem(BaseModel):
@@ -209,6 +166,7 @@ class AttachmentItem(BaseModel):
 
 class SendEmailRequest(BaseModel):
     email_type: str = Field(..., pattern="^(account|subscription|high_priority)$")
+    ews_password: str = ""
     recipient: str
     cc: str = ""
     subject: str = ""
@@ -280,85 +238,14 @@ class SignatureResponse(BaseModel):
     created_at: str
 
 
-# ── Auth schemas ────────────────────────────────────────
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class AutoLoginRequest(BaseModel):
-    email: str
-    api_key: str
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-
-
-class AuthResponse(BaseModel):
-    token: str
-    email: str
-    display_name: str
-
-
-class MeResponse(BaseModel):
-    id: int
-    email: str
-    display_name: str
-
-
 # ── Auth APIs ───────────────────────────────────────────
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def api_login(data: LoginRequest, db: Session = Depends(get_db)):
-    token = login_user(db, data.email, data.password)
+    token = login_or_register(db, data.email, data.password)
     if not token:
-        raise HTTPException(status_code=401, detail="邮箱或密码错误")
-    user = db.query(User).filter(User.email == data.email).first()
-    return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
-
-
-@app.post("/api/auth/register", response_model=AuthResponse)
-def api_register(data: RegisterRequest, db: Session = Depends(get_db)):
-    token = register_user(db, data.email, data.password)
-    if not token:
-        raise HTTPException(status_code=400, detail="该邮箱已注册")
-    user = db.query(User).filter(User.email == data.email).first()
-
-    # 自动创建发件账户配置：注册时填的邮箱+密码即用于 EWS 发信
-    settings = db.query(Settings).filter(
-        Settings.user_id == user.id,
-        Settings.email_address == data.email,
-    ).first()
-    if not settings:
-        # 将该用户其他账户取消激活
-        db.query(Settings).filter(
-            Settings.user_id == user.id,
-            Settings.is_active.is_(True),
-        ).update({"is_active": False}, synchronize_session=False)
-        settings = Settings(
-            user_id=user.id,
-            email_address=data.email,
-            encrypted_password=encrypt_password(data.password),
-            label=data.email,
-            is_active=True,
-        )
-        db.add(settings)
-        db.commit()
-
-    return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
-
-
-@app.post("/api/auth/auto-login", response_model=AuthResponse)
-def api_auto_login(data: AutoLoginRequest, db: Session = Depends(get_db)):
-    """同事系统服务端调用，传入 email + api_key，返回 JWT。"""
-    token = auto_login_user(db, data.email, data.api_key)
-    if not token:
-        raise HTTPException(status_code=403, detail="api_key 无效")
+        raise HTTPException(status_code=401, detail="邮箱或密码错误，请检查后重试")
     user = db.query(User).filter(User.email == data.email).first()
     return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
 
@@ -366,97 +253,6 @@ def api_auto_login(data: AutoLoginRequest, db: Session = Depends(get_db)):
 @app.get("/api/auth/me", response_model=MeResponse)
 def api_me(user: User = Depends(get_current_user)):
     return MeResponse(id=user.id, email=user.email, display_name=user.display_name or "")
-
-
-# ── Settings APIs ───────────────────────────────────────
-
-
-def _get_active_settings(db: Session, user: User) -> Settings | None:
-    return db.query(Settings).filter(
-        Settings.user_id == user.id,
-        Settings.is_active.is_(True),
-    ).first()
-
-
-@app.get("/api/settings", response_model=SettingsResponse)
-def get_settings(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    s = _get_active_settings(db, user)
-    if not s:
-        return SettingsResponse(
-            id=0, email_address="", password_masked="", label="", updated_at=None,
-        )
-    return SettingsResponse(
-        id=s.id,
-        email_address=s.email_address or "",
-        password_masked="********" if s.encrypted_password else "",
-        label=s.label or "",
-        updated_at=s.updated_at.isoformat() if s.updated_at else None,
-    )
-
-
-@app.post("/api/settings")
-def update_settings(
-    payload: SettingsUpdate,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    # Find existing account with same email for this user, or create a new one
-    s = db.query(Settings).filter(
-        Settings.user_id == user.id,
-        Settings.email_address == payload.email_address,
-    ).first()
-    if not s:
-        s = Settings(user_id=user.id)
-        db.add(s)
-        s.is_active = False  # will be set to True below
-    s.email_address = payload.email_address
-    if payload.password:
-        s.encrypted_password = encrypt_password(payload.password)
-    s.label = payload.label or payload.email_address
-    s.updated_at = datetime.now(timezone(timedelta(hours=8)))
-    # Make this the active account (scoped to current user)
-    db.query(Settings).filter(
-        Settings.user_id == user.id,
-        Settings.is_active.is_(True),
-    ).update({"is_active": False}, synchronize_session=False)
-    s.is_active = True
-    db.commit()
-    return {"ok": True, "id": s.id}
-
-
-class TestConnectionRequest(BaseModel):
-    email_address: str = ""
-    password: str = ""
-
-
-@app.post("/api/settings/test-connection")
-def test_connection(
-    data: TestConnectionRequest | None = None,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    s = _get_active_settings(db, user)
-
-    # Use request body params if provided, otherwise fall back to saved settings
-    if data and data.email_address and data.password:
-        addr = data.email_address
-        pwd = data.password
-    elif s and s.email_address and s.encrypted_password:
-        addr = s.email_address
-        try:
-            pwd = decrypt_password(s.encrypted_password)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="密码解密失败，请重新配置凭据")
-    else:
-        raise HTTPException(status_code=400, detail="请先填写邮箱地址和密码")
-
-    success, error_msg = verify_connection(addr, pwd)
-    if not success:
-        raise HTTPException(status_code=400, detail=f"连接失败：{error_msg}")
-    return {"ok": True}
 
 
 # ── Image encoding (for pasted Outlook signatures) ─────
@@ -698,7 +494,6 @@ def _upsert_incident(db: Session, ticket_id: str, form_data: dict | None, user: 
         incident.form_data = json.dumps(form_data or {}, ensure_ascii=False)
         incident.updated_at = datetime.now(timezone(timedelta(hours=8)))
         incident.updated_by = user.id
-        # Update status from form_data if present
         if form_data and "status_prefix" in form_data:
             incident.status = form_data["status_prefix"]
     else:
@@ -722,24 +517,18 @@ def send_email_api(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    s = _get_active_settings(db, user)
-    if not s:
-        raise HTTPException(status_code=400, detail="请先在设置中添加发件邮箱")
-    if not s.email_address or not s.encrypted_password:
-        raise HTTPException(status_code=400, detail=f"当前发件账户「{s.email_address or '(空)'}」未配置密码，请去设置页为它填写密码")
+    if not data.ews_password:
+        raise HTTPException(status_code=400, detail="密码不能为空")
 
     body_html = data.body
 
-    # Validate
     if data.email_type == "account" and not data.accounts:
         raise HTTPException(status_code=400, detail="请至少添加一条账号")
     if data.email_type == "subscription" and not data.subscriptions:
         raise HTTPException(status_code=400, detail="请至少添加一条订阅")
 
-    # Plain text version: strip HTML tags
     body_plain = _strip_html(body_html)
 
-    # Append signature HTML if selected
     if data.signature_id:
         sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
         if sig and sig.content:
@@ -748,13 +537,9 @@ def send_email_api(
             else:
                 body_html += "\n<br>\n<div style=\"max-width:600px;\">" + sig.content + "</div>"
 
-    try:
-        smtp_password = decrypt_password(s.encrypted_password)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="密码解密失败，请重新配置凭据")
     success, error_msg = send_email(
-        email_address=s.email_address,
-        password=smtp_password,
+        email_address=user.email,
+        password=data.ews_password,
         recipient=data.recipient,
         subject=data.subject,
         body_html=body_html,
@@ -764,8 +549,7 @@ def send_email_api(
     )
 
     record = EmailHistory(
-        user_id=user.id,
-        sender=s.email_address,
+        sender=user.email,
         email_type=data.email_type,
         recipient=data.recipient,
         cc=data.cc,
@@ -781,7 +565,6 @@ def send_email_api(
     if not success:
         raise HTTPException(status_code=500, detail=error_msg)
 
-    # Upsert incident_store for HP emails
     if data.email_type == "high_priority" and data.ticket_id:
         _upsert_incident(db, data.ticket_id, data.form_data, user)
 
@@ -799,7 +582,7 @@ def get_history(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    q = db.query(EmailHistory).filter(EmailHistory.user_id == user.id)
+    q = db.query(EmailHistory).filter(EmailHistory.sender == user.email)
     if email_type:
         q = q.filter(EmailHistory.email_type == email_type)
 
@@ -840,7 +623,7 @@ def delete_history(
 ):
     record = db.query(EmailHistory).filter(
         EmailHistory.id == record_id,
-        EmailHistory.user_id == user.id,
+        EmailHistory.sender == user.email,
     ).first()
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
@@ -854,90 +637,16 @@ def reset_app(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Reset the application to factory defaults: clear credentials from the
-    active account, delete all templates/signatures/history for the current user,
-    and re-create default templates if missing."""
-    # Clear active account credentials
-    s = _get_active_settings(db, user)
-    if s:
-        s.encrypted_password = ""
-        s.email_address = ""
-        s.label = ""
-        s.updated_at = datetime.now(timezone(timedelta(hours=8)))
-        db.flush()
-
-    # Delete current user's data (not public templates)
-    db.query(EmailHistory).filter(EmailHistory.user_id == user.id).delete()
+    """Delete all personal data for the current user (templates, signatures, history)."""
+    db.query(EmailHistory).filter(EmailHistory.sender == user.email).delete()
     db.query(Signature).filter(Signature.user_id == user.id).delete()
     db.query(EmailTemplate).filter(
         EmailTemplate.user_id == user.id
     ).delete(synchronize_session=False)
     db.flush()
 
-    # Re-create default templates if missing (public, user_id=NULL)
     _migrate_templates(db)
 
-    return {"ok": True}
-
-
-# ── Account management ──────────────────────────────────
-
-
-@app.get("/api/accounts", response_model=list[AccountListItem])
-def list_accounts(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    items = db.query(Settings).filter(
-        Settings.user_id == user.id,
-        Settings.email_address != "",
-    ).order_by(Settings.updated_at.desc()).all()
-    return [
-        AccountListItem(
-            id=a.id,
-            email_address=a.email_address or "",
-            label=a.label or a.email_address or "",
-            is_active=a.is_active,
-        )
-        for a in items
-    ]
-
-
-@app.post("/api/accounts/{account_id}/switch")
-def switch_account(
-    account_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    a = db.query(Settings).filter(
-        Settings.id == account_id,
-        Settings.user_id == user.id,
-    ).first()
-    if not a:
-        raise HTTPException(status_code=404, detail="账户不存在")
-    db.query(Settings).filter(
-        Settings.user_id == user.id,
-        Settings.is_active.is_(True),
-    ).update({"is_active": False}, synchronize_session=False)
-    a.is_active = True
-    db.commit()
-    return {"ok": True}
-
-
-@app.delete("/api/accounts/{account_id}")
-def delete_account(
-    account_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    a = db.query(Settings).filter(
-        Settings.id == account_id,
-        Settings.user_id == user.id,
-    ).first()
-    if not a:
-        raise HTTPException(status_code=404, detail="账户不存在")
-    db.delete(a)
-    db.commit()
     return {"ok": True}
 
 

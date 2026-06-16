@@ -13,36 +13,10 @@
             </nav>
           </div>
           <div class="header-right">
-            <n-popover trigger="click" placement="bottom-end" :width="260">
-              <template #trigger>
-                <div class="account-status">
-                  <span class="status-dot" :class="accountClass"></span>
-                  <span class="status-text">{{ accountLabel }}</span>
-                </div>
-              </template>
-              <div class="account-switcher">
-                <div class="switcher-title">切换发件账户</div>
-                <div
-                  v-for="acct in accounts"
-                  :key="acct.id"
-                  class="switcher-item"
-                  :class="{ active: acct.id === accountId }"
-                  @click="handleSwitchAccount(acct)"
-                >
-                  <span class="switcher-dot" :class="acct.is_active ? 'active-dot' : ''"></span>
-                  <span class="switcher-email">{{ acct.email_address }}</span>
-                  <span v-if="acct.id === accountId" class="switcher-check">✓</span>
-                </div>
-                <div v-if="!accounts.length" class="switcher-empty">暂无已保存的账户</div>
-                <div class="switcher-footer">
-                  <div class="switcher-login">登录身份: {{ userEmail }}</div>
-                  <n-button text size="tiny" @click="$router.push('/settings')">管理账户</n-button>
-                </div>
-              </div>
-            </n-popover>
-            <n-button text @click="$router.push('/settings')">
-              <template #icon><SvgIcon name="settings" /></template>
-            </n-button>
+            <div class="account-status">
+              <span class="status-dot" :class="accountClass"></span>
+              <span class="status-text">{{ accountLabel }}</span>
+            </div>
             <n-button text @click="$router.push('/history')">
               <template #icon><SvgIcon name="list" /></template>
             </n-button>
@@ -61,29 +35,25 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, onMounted, watch } from "vue";
+import { ref, computed, provide, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { isLoggedIn } from "@/api";
-import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NPopover } from "naive-ui";
+import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
-import { getSettings, testConnection, getAccounts, switchAccount, getMe, removeToken } from "@/api";
+import { getMe, removeToken } from "@/api";
 
 const router = useRouter();
 
 const userEmail = ref("");
 const userDisplayName = ref("");
-const activeSender = ref("");       // 当前激活的发件邮箱
-const accountId = ref(0);
-const accounts = ref([]);
-const switching = ref(false);
 
 const accountLabel = computed(() => {
-  return activeSender.value || userDisplayName.value || userEmail.value || "未登录";
+  return userDisplayName.value || userEmail.value || "未登录";
 });
 
 const accountClass = computed(() => {
-  return activeSender.value ? "ok" : "none";
+  return userEmail.value ? "ok" : "none";
 });
 
 async function fetchUser() {
@@ -97,51 +67,19 @@ async function fetchUser() {
   }
 }
 
-async function refreshAccount() {
-  // Load active settings account for the switcher
-  try {
-    const { data } = await getSettings();
-    accountId.value = data.id || 0;
-    activeSender.value = data.email_address || "";
-  } catch {
-    accountId.value = 0;
-    activeSender.value = "";
-  }
-  // Also load all accounts for the switcher
-  try {
-    const { data } = await getAccounts();
-    accounts.value = data || [];
-  } catch { accounts.value = []; }
-}
-
-async function handleSwitchAccount(acct) {
-  if (acct.id === accountId.value || switching.value) return;
-  switching.value = true;
-  try {
-    await switchAccount(acct.id);
-    await refreshAccount();
-    window.dispatchEvent(new Event("account-changed"));
-  } catch { /* ignore */ }
-  switching.value = false;
-}
-
 function handleLogout() {
   removeToken();
   userEmail.value = "";
   userDisplayName.value = "";
-  activeSender.value = "";
   router.replace("/login");
 }
 
-provide("refreshAccount", refreshAccount);
 provide("userEmail", userEmail);
-provide("accountEmail", activeSender);
-provide("accountExpired", ref(false));
+provide("accountEmail", userEmail);
 
 onMounted(() => {
   if (isLoggedIn()) {
     fetchUser();
-    refreshAccount();
   }
 });
 

@@ -197,7 +197,7 @@ import { useRecipients } from '@/composables/useRecipients'
 
 const message = useMessage()
 const accountEmail = inject('accountEmail', ref(''))
-const accountExpired = inject('accountExpired', ref(false))
+
 
 // ── Composables ──
 const draft = useDraft('subscription')
@@ -368,7 +368,7 @@ function autoSelectDefaultSignature() {
 const sendHints = computed(() => {
   const hints = []
   if (!accountEmail.value) hints.push('请先在设置中配置邮箱凭据')
-  else if (accountExpired.value) hints.push('凭据已过期，请更新密码')
+
   if (!subject.value) hints.push('请填写邮件标题')
   if (!body.value.trim()) hints.push('请填写邮件正文')
   if (!recip.tags.value.length) hints.push('请添加至少一个收件人')

@@ -1,23 +1,33 @@
 const BASE = "/api";
 
-// ── Token 管理 ──────────────────────────────────────────
+// ── Token & Password 管理 ──────────────────────────────
 
 const TOKEN_KEY = "mailswift_token";
+const PWD_KEY = "mailswift_ews_password";
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return sessionStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.setItem(TOKEN_KEY, token);
 }
 
 export function removeToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(PWD_KEY);
 }
 
 export function isLoggedIn() {
   return !!getToken();
+}
+
+export function getEwsPassword() {
+  return sessionStorage.getItem(PWD_KEY) || "";
+}
+
+export function setEwsPassword(pwd) {
+  sessionStorage.setItem(PWD_KEY, pwd);
 }
 
 async function req(path, { method = "GET", body, params } = {}) {
@@ -55,32 +65,15 @@ export function login(email, password) {
   return req("/auth/login", { method: "POST", body: { email, password } });
 }
 
-export function register(email, password) {
-  return req("/auth/register", { method: "POST", body: { email, password } });
-}
-
-export function autoLogin(email, apiKey) {
-  return req("/auth/auto-login", { method: "POST", body: { email, api_key: apiKey } });
-}
-
 export function getMe() {
   return req("/auth/me");
 }
 
-export function getSettings() {
-  return req("/settings");
-}
-
-export function updateSettings(data) {
-  return req("/settings", { method: "POST", body: data });
-}
-
-export function testConnection(data) {
-  return req("/settings/test-connection", { method: "POST", body: data || {} });
-}
+// ── Business APIs ────────────────────────────────────────
 
 export function sendEmail(data) {
-  return req("/send", { method: "POST", body: data });
+  // 发邮件时自动带上 sessionStorage 中的密码
+  return req("/send", { method: "POST", body: { ...data, ews_password: getEwsPassword() } });
 }
 
 export function getHistory(params) {
@@ -125,18 +118,6 @@ export function deleteSignature(id) {
 
 export function encodeImage(url) {
   return req("/encode-image", { method: "POST", body: { url } });
-}
-
-export function getAccounts() {
-  return req("/accounts");
-}
-
-export function switchAccount(id) {
-  return req(`/accounts/${id}/switch`, { method: "POST" });
-}
-
-export function deleteAccount(id) {
-  return req(`/accounts/${id}`, { method: "DELETE" });
 }
 
 export function lookupIncident(ticketId) {
