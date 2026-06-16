@@ -127,3 +127,11 @@ export function lookupIncident(ticketId) {
 export function resetApp() {
   return req("/reset", { method: "POST" });
 }
+
+export function getDomains() {
+  return req("/domains");
+}
+
+export function updateDomains(domains) {
+  return req("/domains", { method: "POST", body: { domains } });
+}

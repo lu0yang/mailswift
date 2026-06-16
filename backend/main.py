@@ -678,6 +678,30 @@ def lookup_incident(
     return {"ok": True, "data": {"status": incident.status, "form_data": form_data}}
 
 
+# ── Domain presets ─────────────────────────────────────
+
+
+@app.get("/api/domains")
+def get_domains(user: User = Depends(get_current_user)):
+    import json
+    try:
+        return {"domains": json.loads(user.domains or "[]")}
+    except Exception:
+        return {"domains": []}
+
+
+class DomainsUpdate(BaseModel):
+    domains: list[str]
+
+
+@app.post("/api/domains")
+def update_domains(data: DomainsUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    import json
+    user.domains = json.dumps(data.domains, ensure_ascii=False)
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}

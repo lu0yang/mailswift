@@ -44,7 +44,7 @@ import { isLoggedIn } from "@/api";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
-import { getMe, removeToken } from "@/api";
+import { getMe, removeToken, getDomains } from "@/api";
 
 const router = useRouter();
 
@@ -80,9 +80,17 @@ function handleLogout() {
 provide("userEmail", userEmail);
 provide("accountEmail", userEmail);
 
+async function syncDomains() {
+  try {
+    const { data } = await getDomains();
+    localStorage.setItem("mailswift_preset_domains", JSON.stringify(data.domains || []));
+  } catch { /* */ }
+}
+
 onMounted(() => {
   if (isLoggedIn()) {
     fetchUser();
+    syncDomains();
   }
 });
 

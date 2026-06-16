@@ -44,6 +44,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False)
     display_name = Column(String(255), default="")
+    domains = Column(Text, default="[]")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 

@@ -245,7 +245,7 @@ import RichTextEditor from "@/components/RichTextEditor.vue";
 import {
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
-  resetApp, encodeImage,
+  resetApp, encodeImage, getDomains, updateDomains,
 } from "@/api";
 
 const message = useMessage();
@@ -483,7 +483,6 @@ async function loadSignatures() {
 
 // ── Preset domains ──────────────────
 
-const DOMAINS_KEY = "mailswift_preset_domains";
 const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
 const domains = ref([]);
 
@@ -491,17 +490,19 @@ const domainModalVisible = ref(false);
 const domainEditIndex = ref(-1);
 const domainFormValue = ref("");
 
-function loadDomains() {
+async function loadDomains() {
   try {
-    const raw = localStorage.getItem(DOMAINS_KEY);
-    domains.value = raw ? JSON.parse(raw) : [...DEFAULT_DOMAINS];
+    const { data } = await getDomains();
+    domains.value = data.domains && data.domains.length > 0 ? data.domains : [...DEFAULT_DOMAINS];
   } catch {
     domains.value = [...DEFAULT_DOMAINS];
   }
+  localStorage.setItem("mailswift_preset_domains", JSON.stringify(domains.value));
 }
 
-function saveDomains() {
-  localStorage.setItem(DOMAINS_KEY, JSON.stringify(domains.value));
+async function saveDomains() {
+  localStorage.setItem("mailswift_preset_domains", JSON.stringify(domains.value));
+  try { await updateDomains(domains.value); } catch { /* */ }
 }
 
 function openDomainModal(index) {
