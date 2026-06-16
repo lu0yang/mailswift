@@ -95,7 +95,9 @@ def _migrate_schema(db: Session):
     if "msw_history" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("msw_history")}
         if "user_id" not in cols:
-            db.execute(sa.text("ALTER TABLE email_history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+            db.execute(sa.text("ALTER TABLE msw_history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"))
+        if "sender" not in cols:
+            db.execute(sa.text("ALTER TABLE msw_history ADD COLUMN sender VARCHAR(255) DEFAULT ''"))
 
     # created_by / updated_by on incident_store (NULLABLE)
     if "msw_incident" in insp.get_table_names():
@@ -762,6 +764,7 @@ def send_email_api(
 
     record = EmailHistory(
         user_id=user.id,
+        sender=s.email_address,
         email_type=data.email_type,
         recipient=data.recipient,
         cc=data.cc,

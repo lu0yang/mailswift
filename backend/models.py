@@ -93,6 +93,7 @@ class EmailHistory(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("msw_users.id"), nullable=False)
+    sender = Column(String(255), default="")
     email_type = Column(String(50), nullable=False)
     recipient = Column(String(255), nullable=False)
     cc = Column(Text, default="")
