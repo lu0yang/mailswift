@@ -16,7 +16,7 @@
             <n-popover trigger="click" placement="bottom-end" :width="260">
               <template #trigger>
                 <div class="account-status">
-                  <span class="status-dot ok"></span>
+                  <span class="status-dot" :class="accountClass"></span>
                   <span class="status-text">{{ accountLabel }}</span>
                 </div>
               </template>
@@ -46,7 +46,7 @@
               <template #icon><SvgIcon name="list" /></template>
             </n-button>
             <n-button text @click="handleLogout" style="color:#ff3b30">
-              退出
+              退出登录
             </n-button>
           </div>
         </header>
@@ -76,7 +76,11 @@ const accounts = ref([]);
 const switching = ref(false);
 
 const accountLabel = computed(() => {
-  return userDisplayName.value || userEmail.value || "...";
+  return userDisplayName.value || userEmail.value || "未登录";
+});
+
+const accountClass = computed(() => {
+  return userEmail.value ? "ok" : "none";
 });
 
 async function fetchUser() {
@@ -257,6 +261,7 @@ body {
   flex-shrink: 0;
 }
 
+.status-dot.none { background: #a1a1a6; }
 .status-dot.ok { background: #34c759; }
 
 .status-text {
