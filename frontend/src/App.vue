@@ -60,8 +60,9 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, onMounted } from "vue";
+import { ref, computed, provide, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
+import { isLoggedIn } from "@/api";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NPopover } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
@@ -131,8 +132,18 @@ provide("refreshAccount", refreshAccount);
 provide("userEmail", userEmail);
 
 onMounted(() => {
-  fetchUser();
-  refreshAccount();
+  if (isLoggedIn()) {
+    fetchUser();
+    refreshAccount();
+  }
+});
+
+// 监听路由变化：登录成功后跳转时重新获取用户信息
+watch(() => router.currentRoute.value, (to) => {
+  if (to.name !== "login" && isLoggedIn()) {
+    fetchUser();
+    refreshAccount();
+  }
 });
 
 const themeOverrides = {
