@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, onMounted } from "vue";
+import { ref, computed, provide, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { isLoggedIn } from "@/api";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
@@ -87,7 +87,6 @@ onMounted(() => {
 watch(() => router.currentRoute.value, (to) => {
   if (to.name !== "login" && isLoggedIn()) {
     fetchUser();
-    refreshAccount();
   }
 });
 
