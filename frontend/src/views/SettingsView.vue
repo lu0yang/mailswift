@@ -250,6 +250,12 @@ import {
 const message = useMessage();
 const dialog = useDialog();
 
+// ── Init ──────────────────────────────
+
+onMounted(() => {
+  loadTemplates();
+  loadSignatures();
+});
 
 // ── Reset ────────────────────────────
 
