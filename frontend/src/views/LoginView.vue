@@ -63,6 +63,15 @@ const rules = {
 };
 
 onMounted(() => {
+  // 同事系统跳转：URL 带 token 参数 → 自动登录
+  // hash 路由: http://xxx/#/login?token=yyy
+  const hashQuery = window.location.hash.split("?")[1] || "";
+  const urlToken = new URLSearchParams(hashQuery).get("token");
+  if (urlToken) {
+    setToken(urlToken);
+    router.replace("/account");
+    return;
+  }
   // 如果已有 token，直接跳转主页
   if (getToken()) {
     router.replace("/account");
