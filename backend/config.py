@@ -23,6 +23,14 @@ DB_USER = os.getenv("DB_USER", "root")
 DB_PASS = os.getenv("DB_PASS", "")
 DB_NAME = os.getenv("DB_NAME", "aped8")
 
+# JWT 密钥（生产环境请换成随机字符串）
+JWT_SECRET = os.getenv("JWT_SECRET", "mailswift-jwt-secret-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
+
+# 同事系统自动登录的共享密钥（双方约定一个字符串）
+AUTO_LOGIN_API_KEY = os.getenv("AUTO_LOGIN_API_KEY", "shared-secret-change-me")
+
 DATABASE_URL = (
     f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     f"?charset=utf8mb4"

@@ -13,15 +13,15 @@
             </nav>
           </div>
           <div class="header-right">
+            <span class="user-name">{{ accountLabel }}</span>
             <n-popover trigger="click" placement="bottom-end" :width="260">
               <template #trigger>
                 <div class="account-status">
-                  <span class="status-dot" :class="accountClass"></span>
-                  <span class="status-text">{{ accountLabel }}</span>
+                  <span class="status-text">发件切换</span>
                 </div>
               </template>
               <div class="account-switcher">
-                <div class="switcher-title">切换账户</div>
+                <div class="switcher-title">切换发件账户</div>
                 <div
                   v-for="acct in accounts"
                   :key="acct.id"
@@ -45,6 +45,9 @@
             <n-button text @click="$router.push('/history')">
               <template #icon><SvgIcon name="list" /></template>
             </n-button>
+            <n-button text @click="handleLogout" style="color:#ff3b30">
+              退出
+            </n-button>
           </div>
         </header>
         <main class="app-main">
@@ -58,50 +61,42 @@
 
 <script setup>
 import { ref, computed, provide, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton, NPopover } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
-import { getSettings, testConnection, getAccounts, switchAccount } from "@/api";
+import { getSettings, testConnection, getAccounts, switchAccount, getMe, removeToken } from "@/api";
 
-const accountEmail = ref("");
-const accountExpired = ref(false);
+const router = useRouter();
+
+const userEmail = ref("");
+const userDisplayName = ref("");
 const accountId = ref(0);
 const accounts = ref([]);
 const switching = ref(false);
 
-const accountClass = computed(() => {
-  if (!accountEmail.value) return "none";
-  if (accountExpired.value) return "expired";
-  return "ok";
+const accountLabel = computed(() => {
+  return userDisplayName.value || userEmail.value || "...";
 });
 
-const accountLabel = computed(() => {
-  if (!accountEmail.value) return "未登录";
-  if (accountExpired.value) return "凭据已过期";
-  return accountEmail.value;
-});
+async function fetchUser() {
+  try {
+    const { data } = await getMe();
+    userEmail.value = data.email;
+    userDisplayName.value = data.display_name;
+  } catch {
+    userEmail.value = "";
+    userDisplayName.value = "";
+  }
+}
 
 async function refreshAccount() {
+  // Load active settings account for the switcher
   try {
     const { data } = await getSettings();
-    if (data.email_address && data.password_masked) {
-      accountEmail.value = data.email_address;
-      accountId.value = data.id || 0;
-      try {
-        await testConnection();
-        accountExpired.value = false;
-      } catch {
-        accountExpired.value = true;
-      }
-    } else {
-      accountEmail.value = "";
-      accountId.value = 0;
-      accountExpired.value = false;
-    }
+    accountId.value = data.id || 0;
   } catch {
-    accountEmail.value = "";
     accountId.value = 0;
-    accountExpired.value = false;
   }
   // Also load all accounts for the switcher
   try {
@@ -121,11 +116,16 @@ async function handleSwitchAccount(acct) {
   switching.value = false;
 }
 
+function handleLogout() {
+  removeToken();
+  router.replace("/login");
+}
+
 provide("refreshAccount", refreshAccount);
-provide("accountEmail", accountEmail);
-provide("accountExpired", accountExpired);
+provide("userEmail", userEmail);
 
 onMounted(() => {
+  fetchUser();
   refreshAccount();
 });
 
@@ -255,9 +255,12 @@ body {
   flex-shrink: 0;
 }
 
-.status-dot.none { background: #a1a1a6; }
-.status-dot.ok { background: #34c759; }
-.status-dot.expired { background: #ff3b30; }
+.user-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1d1d1f;
+  margin-right: 8px;
+}
 
 .status-text {
   font-size: 13px;

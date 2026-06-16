@@ -21,7 +21,10 @@ from .models import (
     DEFAULT_HP_UPDATED_TEMPLATE,
     DEFAULT_HP_MITIGATED_TEMPLATE,
 )
-from .auth import get_current_user
+from .auth import (
+    get_current_user, login_user, auto_login_user, register_user,
+    hash_password,
+)
 from .crypto_utils import encrypt_password, decrypt_password
 from .mail_sender import send_email, verify_connection
 
@@ -272,6 +275,72 @@ class SignatureResponse(BaseModel):
     content: str
     is_default: bool
     created_at: str
+
+
+# ── Auth schemas ────────────────────────────────────────
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AutoLoginRequest(BaseModel):
+    email: str
+    api_key: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    email: str
+    display_name: str
+
+
+class MeResponse(BaseModel):
+    id: int
+    email: str
+    display_name: str
+
+
+# ── Auth APIs ───────────────────────────────────────────
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def api_login(data: LoginRequest, db: Session = Depends(get_db)):
+    token = login_user(db, data.email, data.password)
+    if not token:
+        raise HTTPException(status_code=401, detail="邮箱或密码错误")
+    user = db.query(User).filter(User.email == data.email).first()
+    return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
+
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+def api_register(data: RegisterRequest, db: Session = Depends(get_db)):
+    token = register_user(db, data.email, data.password)
+    if not token:
+        raise HTTPException(status_code=400, detail="该邮箱已注册")
+    user = db.query(User).filter(User.email == data.email).first()
+    return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
+
+
+@app.post("/api/auth/auto-login", response_model=AuthResponse)
+def api_auto_login(data: AutoLoginRequest, db: Session = Depends(get_db)):
+    """同事系统服务端调用，传入 email + api_key，返回 JWT。"""
+    token = auto_login_user(db, data.email, data.api_key)
+    if not token:
+        raise HTTPException(status_code=403, detail="api_key 无效")
+    user = db.query(User).filter(User.email == data.email).first()
+    return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
+
+
+@app.get("/api/auth/me", response_model=MeResponse)
+def api_me(user: User = Depends(get_current_user)):
+    return MeResponse(id=user.id, email=user.email, display_name=user.display_name or "")
 
 
 # ── Settings APIs ───────────────────────────────────────

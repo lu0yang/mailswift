@@ -1,5 +1,25 @@
 const BASE = "/api";
 
+// ── Token 管理 ──────────────────────────────────────────
+
+const TOKEN_KEY = "mailswift_token";
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function removeToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export function isLoggedIn() {
+  return !!getToken();
+}
+
 async function req(path, { method = "GET", body, params } = {}) {
   let url = `${BASE}${path}`;
   if (params) {
@@ -7,18 +27,44 @@ async function req(path, { method = "GET", body, params } = {}) {
     if (qs) url += `?${qs}`;
   }
   const opts = { method };
+  opts.headers = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) {
+    opts.headers["Authorization"] = `Bearer ${token}`;
+  }
   if (body) {
-    opts.headers = { "Content-Type": "application/json" };
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(url, opts);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 401) {
+      removeToken();
+      window.location.hash = "#/login";
+    }
     const err = new Error(json.detail || `HTTP ${res.status}`);
     err.response = { data: json, status: res.status };
     throw err;
   }
   return { data: json };
+}
+
+// ── Auth APIs ────────────────────────────────────────────
+
+export function login(email, password) {
+  return req("/auth/login", { method: "POST", body: { email, password } });
+}
+
+export function register(email, password) {
+  return req("/auth/register", { method: "POST", body: { email, password } });
+}
+
+export function autoLogin(email, apiKey) {
+  return req("/auth/auto-login", { method: "POST", body: { email, api_key: apiKey } });
+}
+
+export function getMe() {
+  return req("/auth/me");
 }
 
 export function getSettings() {

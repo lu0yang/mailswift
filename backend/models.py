@@ -42,7 +42,8 @@ class User(Base):
     __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    external_id = Column(String(255), unique=True, nullable=True)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=True)
     display_name = Column(String(255), default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
