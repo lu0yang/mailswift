@@ -129,6 +129,7 @@ function handleLogout() {
   removeToken();
   userEmail.value = "";
   userDisplayName.value = "";
+  activeSender.value = "";
   router.replace("/login");
 }
 
