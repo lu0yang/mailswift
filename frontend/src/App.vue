@@ -13,11 +13,11 @@
             </nav>
           </div>
           <div class="header-right">
-            <span class="user-name">{{ accountLabel }}</span>
             <n-popover trigger="click" placement="bottom-end" :width="260">
               <template #trigger>
                 <div class="account-status">
-                  <span class="status-text">发件切换</span>
+                  <span class="status-dot ok"></span>
+                  <span class="status-text">{{ accountLabel }}</span>
                 </div>
               </template>
               <div class="account-switcher">
@@ -255,12 +255,7 @@ body {
   flex-shrink: 0;
 }
 
-.user-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: #1d1d1f;
-  margin-right: 8px;
-}
+.status-dot.ok { background: #34c759; }
 
 .status-text {
   font-size: 13px;
