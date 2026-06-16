@@ -18,10 +18,10 @@
               <span class="status-text">{{ accountLabel }}</span>
             </div>
             <n-button text @click="$router.push('/settings')">
-              <template #icon><SvgIcon name="settings" /></template>
+              设置
             </n-button>
             <n-button text @click="$router.push('/history')">
-              <template #icon><SvgIcon name="list" /></template>
+              历史
             </n-button>
             <n-button text @click="handleLogout" style="color:#ff3b30">
               退出登录
