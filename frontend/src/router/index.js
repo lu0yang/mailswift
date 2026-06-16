@@ -22,7 +22,7 @@ const router = createRouter({
 });
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem("mailswift_token");
+  const token = sessionStorage.getItem("mailswift_token");
   if (!token && to.name !== "login") {
     return { name: "login" };
   }
