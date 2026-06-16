@@ -36,7 +36,7 @@
                 <span class="type-badge" :class="t.type">{{ t.type === 'account' ? '账号' : t.type === 'subscription' ? '订阅' : 'HP' }}</span>
                 <span class="list-card-name">{{ t.name }}</span>
               </div>
-              <div v-if="t.type !== 'high_priority'" class="list-card-right">
+              <div v-if="!t.is_public" class="list-card-right">
                 <n-button text size="tiny" @click="openTemplateModal(t)">编辑</n-button>
                 <n-button text size="tiny" type="error" @click="handleDeleteTemplate(t.id)">删除</n-button>
               </div>
