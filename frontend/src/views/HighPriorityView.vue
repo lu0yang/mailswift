@@ -503,14 +503,15 @@ function loadDraftIntoForm() {
   const d = draft.load()
   if (!d) return
   draft.suppress.value = true
+  // 先恢复 formData，再恢复 selectedTemplateId，确保模板渲染时数据完整
+  formData.value = d.formData || {}
+  incidentBridgeHtml.value = d.incidentBridgeHtml || ''
+  updateHtml.value = d.updateHtml || ''
   selectedTemplateId.value = d.selectedTemplateId || null
   selectedSignatureId.value = d.selectedSignatureId || null
   recip.setTags(d.recipient || '')
   recip.setCcTags(d.cc || '')
   body.value = d.body || ''
-  formData.value = d.formData || {}
-  incidentBridgeHtml.value = d.incidentBridgeHtml || ''
-  updateHtml.value = d.updateHtml || ''
   draft.isDirty.value = false
   draft.suppress.value = false
 }

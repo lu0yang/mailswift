@@ -416,6 +416,7 @@ function loadDraftIntoForm() {
   recip.setCcTags(d.cc || '')
   body.value = d.body || ''
   formData.value = d.formData || {}
+  if (d.body) userEditedBody.value = true  // 防止模板watch覆盖恢复的body
   draft.isDirty.value = false
   draft.suppress.value = false
 }

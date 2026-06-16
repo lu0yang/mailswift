@@ -412,6 +412,7 @@ function loadDraftIntoForm() {
   recip.setCcTags(d.cc || '')
   body.value = d.body || ''
   formData.value = d.formData || {}
+  if (d.body) userEditedBody.value = true
   draft.isDirty.value = false
   draft.suppress.value = false
 }
