@@ -192,7 +192,7 @@ body {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
   -webkit-app-region: no-drag;
 }
 
