@@ -636,17 +636,10 @@ async function onSigPaste(e) {
   if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
-    // 统计所有 blip 类型
-    const allBlips = [];
-    for (const kw of ['pngblip', 'jpegblip', 'wmetafile', 'emfblip']) {
-      const re = new RegExp('\\\\' + kw, 'gi');
-      let m;
-      while ((m = re.exec(rtfData)) !== null) allBlips.push({ type: kw, pos: m.index });
-    }
-    console.log('[签名图片] HTML中file://数量:', fileSrcs.length,
-      '\n  RTF中blip:', allBlips.map(b => b.type + '@' + b.pos).join(', '));
     const rtfImages = extractRtfImages(rtfData);
-    const uniqueSrcs = [...new Set(fileSrcs)]; const count = Math.min(uniqueSrcs.length, rtfImages.length);
+    // 文件路径去重
+	    const uniqueSrcs = [...new Set(fileSrcs)];
+	    const count = Math.min(uniqueSrcs.length, rtfImages.length);
     for (let i = 0; i < count; i++) {
       if (rtfImages[i]) {
         processedHtml = processedHtml.replaceAll(uniqueSrcs[i], rtfImages[i]);
