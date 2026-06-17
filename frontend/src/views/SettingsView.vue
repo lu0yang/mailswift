@@ -573,10 +573,10 @@ async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  const blipRegex = /\\(pngblip|jpegblip)(?:\\\w+)*(?:{.*?})*/gi;
+  const blipRegex = /\\(pngblip|jpegblip|wmetafile|emfblip)(?:\\\w+)*(?:{.*?})*/gi;
   let blipMatch;
   while ((blipMatch = blipRegex.exec(rtf)) !== null) {
-    const isPng = blipMatch[1] === "pngblip";
+    const blipType = blipMatch[1];
     let hexStart = blipMatch.index + blipMatch[0].length;
     let hexStr = "";
     while (hexStart < rtf.length) {
@@ -608,8 +608,25 @@ async function extractRtfImages(rtf) {
     // 转 base64 data URI
     let binary = "";
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    const mime = isPng ? "image/png" : "image/jpeg";
-    result.push(`data:${mime};base64,${btoa(binary)}`);
+
+    // WMF/EMF 矢量图尝试通过 canvas 转为 PNG
+    if (blipType === 'wmetafile' || blipType === 'emfblip') {
+      try {
+        const blob = new Blob([bytes], { type: 'image/wmf' });
+        const bmp = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bmp.width; canvas.height = bmp.height;
+        canvas.getContext('2d').drawImage(bmp, 0, 0);
+        bmp.close();
+        result.push(canvas.toDataURL('image/png'));
+      } catch {
+        // WMF 渲染失败，回退到原始格式
+        result.push(`data:image/png;base64,${btoa(binary)}`);
+      }
+    } else {
+      const mime = blipType === 'pngblip' ? 'image/png' : 'image/jpeg';
+      result.push(`data:${mime};base64,${btoa(binary)}`);
+    }
   }
   return result;
 }
@@ -633,6 +650,9 @@ async function onSigPaste(e) {
   if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
+    console.log("[sig] fileSrcs:", fileSrcs.length,
+      " rtfLen:", rtfData.length,
+      " blips:", ["pngblip","jpegblip","wmetafile"].map(k => k+":"+(rtfData.match(new RegExp("\\\\"+k,"gi"))||[]).length).join(", "));
     const rtfImages = await extractRtfImages(rtfData);
     // 文件路径去重
 	    const uniqueSrcs = [...new Set(fileSrcs)];
