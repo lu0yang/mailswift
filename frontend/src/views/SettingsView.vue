@@ -642,7 +642,11 @@ async function onSigPaste(e) {
   if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
+    console.log("[sig] fileSrcs:", fileSrcs.length, "rtfLen:", rtfData.length,
+      "blips:", ["pngblip","jpegblip","wmetafile","emfblip"].map(k =>
+        k+":"+(rtfData.match(new RegExp("\\\\"+k,"gi"))||[]).length).join(", "));
     const rtfImages = await extractRtfImages(rtfData);
+    console.log("[sig] images:", rtfImages.length, "sizes:", rtfImages.map(i => i ? i.length : 0));
     // 文件路径去重
 	    const uniqueSrcs = [...new Set(fileSrcs)];
 	    const count = Math.min(uniqueSrcs.length, rtfImages.length);
