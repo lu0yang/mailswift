@@ -80,10 +80,14 @@ function handleLogout() {
 provide("userEmail", userEmail);
 provide("accountEmail", userEmail);
 
+const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
+
 async function syncDomains() {
   try {
     const { data } = await getDomains();
-    localStorage.setItem("mailswift_preset_domains", JSON.stringify(data.domains || []));
+    const custom = data.domains || [];
+    const merged = [...new Set([...DEFAULT_DOMAINS, ...custom])];
+    localStorage.setItem("mailswift_preset_domains", JSON.stringify(merged));
   } catch { /* */ }
 }
 

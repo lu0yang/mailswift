@@ -484,7 +484,8 @@ async function loadSignatures() {
 // ── Preset domains ──────────────────
 
 const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
-const domains = ref([]);
+const domains = ref([]);           // 全量（默认+自定义），仅用于展示
+let customDomains = [];            // 用户自己添加的，存数据库
 
 const domainModalVisible = ref(false);
 const domainEditIndex = ref(-1);
@@ -493,16 +494,20 @@ const domainFormValue = ref("");
 async function loadDomains() {
   try {
     const { data } = await getDomains();
-    domains.value = data.domains && data.domains.length > 0 ? data.domains : [...DEFAULT_DOMAINS];
+    customDomains = data.domains || [];
   } catch {
-    domains.value = [...DEFAULT_DOMAINS];
+    customDomains = [];
   }
+  // 始终合并默认域名 + 用户自定义，去重
+  domains.value = [...new Set([...DEFAULT_DOMAINS, ...customDomains])];
   localStorage.setItem("mailswift_preset_domains", JSON.stringify(domains.value));
 }
 
 async function saveDomains() {
+  // 只把用户自己加的（非默认）存入数据库
+  customDomains = domains.value.filter(d => !DEFAULT_DOMAINS.includes(d));
   localStorage.setItem("mailswift_preset_domains", JSON.stringify(domains.value));
-  try { await updateDomains(domains.value); } catch { /* */ }
+  try { await updateDomains(customDomains); } catch { /* */ }
 }
 
 function openDomainModal(index) {
@@ -529,9 +534,14 @@ function saveDomain() {
 }
 
 function removeDomain(index) {
+  const domain = domains.value[index];
+  if (DEFAULT_DOMAINS.includes(domain)) {
+    message.warning("默认域名不可删除");
+    return;
+  }
   dialog.warning({
     title: "确认删除",
-    content: `确定要删除 ${domains.value[index]} 吗？`,
+    content: `确定要删除 ${domain} 吗？`,
     positiveText: "删除",
     negativeText: "取消",
     onPositiveClick: () => {
