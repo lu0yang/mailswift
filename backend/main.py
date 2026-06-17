@@ -541,6 +541,36 @@ def send_email_api(
             else:
                 body_html += "\n<br>\n<div style=\"max-width:600px;\">" + sig.content + "</div>"
 
+    # 提取 base64 内嵌图片，转为 CID 引用（减小 body 体积）
+    import re as _re
+    _inline_images = []
+    _img_index = 0
+
+    def _replace_data_uri(match):
+        nonlocal _img_index
+        mime_type = match.group(1)
+        b64_data = match.group(2)
+        suffix = mime_type.split("/")[-1] or "png"
+        _img_index += 1
+        cid = f"img_{_img_index:03d}"
+
+        try:
+            img_bytes = base64.b64decode(b64_data)
+        except Exception:
+            return match.group(0)
+
+        _inline_images.append({
+            "cid": cid,
+            "data": img_bytes,
+            "content_type": mime_type,
+        })
+        return f"cid:{cid}"
+
+    _data_uri_re = _re.compile(r'data:(image/[\w+-]+);base64,([A-Za-z0-9+/=]+)')
+    body_html = _data_uri_re.sub(_replace_data_uri, body_html)
+    # 同时更新 plain text（去掉被替换的 base64 乱码）
+    body_plain = _strip_html(body_html)
+
     success, error_msg = send_email(
         email_address=user.email,
         password=data.ews_password,
@@ -550,6 +580,7 @@ def send_email_api(
         body_plain=body_plain,
         cc=data.cc,
         attachments=[a.model_dump() for a in data.attachments] if data.attachments else [],
+        inline_images=_inline_images if _inline_images else None,
     )
 
     record = EmailHistory(

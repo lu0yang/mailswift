@@ -53,6 +53,7 @@ def send_email(
     body_plain: str,
     cc: str = "",
     attachments: list[dict] | None = None,
+    inline_images: list[dict] | None = None,
 ) -> tuple[bool, str]:
     """Send an email via Exchange EWS. The message is automatically saved to Sent Items."""
     try:
@@ -80,6 +81,17 @@ def send_email(
             for att in attachments:
                 content = base64.b64decode(att["content_base64"])
                 m.attach(FileAttachment(name=att["filename"], content=content))
+
+        # 内嵌图片（CID 引用），不显示为附件
+        if inline_images:
+            for img in inline_images:
+                m.attach(FileAttachment(
+                    name=img["cid"],
+                    content=img["data"],
+                    content_type=img.get("content_type", "image/png"),
+                    is_inline=True,
+                    content_id=img["cid"],
+                ))
 
         m.send()
         return True, ""
