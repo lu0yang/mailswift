@@ -588,7 +588,15 @@ async function extractRtfImages(rtf) {
   console.log("[sig] pictBlocks:", pictBlocks.length);
 
   for (const block of pictBlocks) {
-    const hexStr = block.replace(/[^0-9a-fA-F]/g, "");
+    // 从右向左扫描：图片hex紧贴块的 } 结尾，遇非hex就停
+    let hexStr = "";
+    for (let i = block.length - 2; i >= 0; i--) {
+      if (/[0-9a-fA-F]/.test(block[i])) {
+        hexStr = block[i] + hexStr;  // 前缀拼接（保持从左到右顺序）
+      } else if (hexStr.length > 0) {
+        break;  // hex段结束
+      }
+    }
     if (hexStr.length < 200) continue;
     console.log("[sig] hexLen:", hexStr.length);
 
