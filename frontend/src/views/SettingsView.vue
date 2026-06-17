@@ -646,10 +646,10 @@ async function onSigPaste(e) {
     console.log('[签名图片] HTML中file://数量:', fileSrcs.length,
       '\n  RTF中blip:', allBlips.map(b => b.type + '@' + b.pos).join(', '));
     const rtfImages = extractRtfImages(rtfData);
-    const count = Math.min(fileSrcs.length, rtfImages.length);
+    const uniqueSrcs = [...new Set(fileSrcs)]; const count = Math.min(uniqueSrcs.length, rtfImages.length);
     for (let i = 0; i < count; i++) {
       if (rtfImages[i]) {
-        processedHtml = processedHtml.replaceAll(fileSrcs[i], rtfImages[i]);
+        processedHtml = processedHtml.replaceAll(uniqueSrcs[i], rtfImages[i]);
       }
     }
     sigImageConverting.value = false;
