@@ -121,16 +121,29 @@ function removeAccount(index) {
   local.accounts.splice(index, 1);
 }
 
-// Sync when parent clears form data (keep-alive scenario)
-watch(() => props.modelValue?.accounts?.length, (len) => {
-  if ((len === 0 || len === undefined) && local.accounts.length > 0) {
+// Sync with parent formData (draft restore / clear)
+watch(() => props.modelValue?.accounts, (accts) => {
+  if (!accts || accts.length === 0) {
+    // Parent cleared: reset to one empty row
+    if (local.accounts.length > 0) {
+      suppressEmit = true;
+      local.accounts.splice(0, local.accounts.length, {
+        account: "", password: "", account_type: "", _key: ++keyCounter,
+      });
+      nextTick(() => { suppressEmit = false; });
+    }
+  } else {
+    // Parent set data (draft restore): sync into local
     suppressEmit = true;
-    local.accounts.splice(0, local.accounts.length, {
-      account: "", password: "", account_type: "", _key: ++keyCounter,
-    });
+    local.accounts.splice(0, local.accounts.length, ...accts.map(a => ({
+      account: a.account || "",
+      password: a.password || "",
+      account_type: a.account_type || "",
+      _key: ++keyCounter,
+    })));
     nextTick(() => { suppressEmit = false; });
   }
-});
+}, { deep: true });
 
 // ── Account name history dropdown ────
 
