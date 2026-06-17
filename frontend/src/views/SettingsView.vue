@@ -572,14 +572,17 @@ async function onSigPaste(e) {
   e.target.innerHTML = "";
 
   // 从剪贴板获取图片文件（Outlook 复制时同时携带 HTML 和图片 blob）
+  const allTypes = [];
   const imageBlobs = [];
   if (e.clipboardData.items) {
     for (const item of e.clipboardData.items) {
+      allTypes.push(item.type);
       if (item.type.startsWith("image/")) {
         imageBlobs.push(item.getAsFile());
       }
     }
   }
+  console.log('[签名图片] 剪贴板所有类型:', allTypes, '  图片文件数:', imageBlobs.length);
 
   // 从原始 HTML 提取 file:// 路径，用剪贴板图片 blob 替换
   const fileSrcs = [];
