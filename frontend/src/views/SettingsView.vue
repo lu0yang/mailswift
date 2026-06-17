@@ -93,9 +93,9 @@
                   {{ DEFAULT_DOMAINS.includes(d) ? '默认' : '个人' }}
                 </span>
               </div>
-              <div class="list-card-right">
+              <div v-if="!DEFAULT_DOMAINS.includes(d)" class="list-card-right">
                 <n-button text size="tiny" @click="openDomainModal(i)">编辑</n-button>
-                <n-button v-if="!DEFAULT_DOMAINS.includes(d)" text size="tiny" type="error" @click="removeDomain(i)">删除</n-button>
+                <n-button text size="tiny" type="error" @click="removeDomain(i)">删除</n-button>
               </div>
             </div>
           </div>
