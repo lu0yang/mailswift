@@ -402,13 +402,17 @@ function getFormState() {
 }
 
 function handleSaveDraft() {
-  draft.save(getFormState())
+  const state = getFormState();
+  console.log('[draft] 暂存草稿:', JSON.stringify(state).slice(0, 200));
+  draft.save(state)
   message.success('草稿已暂存')
 }
 
 function loadDraftIntoForm() {
+  const raw = localStorage.getItem(draft.key());
   const d = draft.load()
-  if (!d) return
+  if (!d) { console.log('[draft] 无草稿, localStorage key=' + draft.key()); return }
+  console.log('[draft] 加载草稿:', JSON.stringify(d).slice(0, 200));
   draft.suppress.value = true
   selectedTemplateId.value = d.selectedTemplateId || null
   selectedSignatureId.value = d.selectedSignatureId || null
@@ -417,6 +421,7 @@ function loadDraftIntoForm() {
   recip.setCcTags(d.cc || '')
   body.value = d.body || ''
   formData.value = d.formData || {}
+  console.log('[draft] 恢复后 formData:', JSON.stringify(formData.value));
   formKey.value++  // 强制重建子组件，确保数据同步
   if (d.body) userEditedBody.value = true  // 防止模板watch覆盖恢复的body
   draft.isDirty.value = false
