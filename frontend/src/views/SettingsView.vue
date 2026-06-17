@@ -566,59 +566,86 @@ function measurePreviewScale() {
 
 /**
  * 从 RTF 数据中提取嵌入的图片，返回 data URI 数组。
- * 统一走 createImageBitmap + canvas → PNG，让浏览器系统解码器识别所有格式。
+ * 不依赖 blip 名称 — 直接定位 {\pict 块，取其中长 hex 序列。
  */
 async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  // 匹配所有图片格式: *blip (pngblip/jpegblip) + wmetafile + emfblip
-  const blipRegex = /\\(pngblip|jpegblip|wmetafile|emfblip|\w*blip)(?:\\\w+)*(?:{.*?})*/gi;
-  let blipMatch;
-  while ((blipMatch = blipRegex.exec(rtf)) !== null) {
-    let hexStart = blipMatch.index + blipMatch[0].length;
-    let hexStr = "";
-    while (hexStart < rtf.length) {
-      const ch = rtf[hexStart];
-      if (ch === "}") break;
-      if (/[0-9a-fA-F]/.test(ch)) {
-        hexStr += ch;
-      } else if (ch === "\\") {
-        while (hexStart < rtf.length && rtf[hexStart] !== " " && rtf[hexStart] !== "}") {
-          hexStart++;
-        }
-        if (rtf[hexStart] === "}") break;
-      } else if (ch === "\r" || ch === "\n" || ch === " ") {
-        // skip
-      } else {
-        break;
+  // 找到所有 {\pict 的位置，用括号计数提取整个块
+  const pictBlocks = [];
+  let searchFrom = 0;
+  while (true) {
+    const idx = rtf.indexOf('{\\pict', searchFrom);
+    if (idx === -1) break;
+
+    // 从 {\pict 的 { 开始数括号
+    let depth = 0;
+    let end = -1;
+    for (let i = idx; i < rtf.length; i++) {
+      if (rtf[i] === '{') depth++;
+      else if (rtf[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i; break; }
       }
-      hexStart++;
+    }
+    if (end > idx) {
+      pictBlocks.push(rtf.substring(idx, end + 1));
+    }
+    searchFrom = idx + 1;
+  }
+
+  // 第2步：块内逐字符收集 hex — 跳过控制词、嵌套组、空白
+  for (const block of pictBlocks) {
+    const hexChunks = [];
+    let i = 0;
+    while (i < block.length) {
+      const ch = block[i];
+      if (ch === '{') {
+        let depth = 1; i++;
+        while (i < block.length && depth > 0) {
+          if (block[i] === '{') depth++;
+          else if (block[i] === '}') depth--;
+          i++;
+        }
+        continue;
+      }
+      if (ch === '}') { i++; continue; }
+      if (ch === '\\') {
+        i++;
+        while (i < block.length && /[a-zA-Z0-9]/.test(block[i])) i++;
+        if (i < block.length && block[i] === ' ') i++;
+        continue;
+      }
+      if (/[0-9a-fA-F]/.test(ch)) {
+        let hex = '';
+        while (i < block.length && /[0-9a-fA-F]/.test(block[i])) {
+          hex += block[i]; i++;
+        }
+        if (hex.length >= 200) hexChunks.push(hex);
+        continue;
+      }
+      i++; // 空白、换行等
     }
 
-    if (hexStr.length < 200) continue;
-
-    const len = Math.floor(hexStr.length / 2);
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
-    }
-
-    // 统一使用浏览器的系统解码器处理所有格式（PNG/JPEG/WMF/EMF 等）
-    try {
-      const blob = new Blob([bytes]);
-      const bmp = await createImageBitmap(blob);
-      const canvas = document.createElement('canvas');
-      canvas.width = bmp.width;
-      canvas.height = bmp.height;
-      canvas.getContext('2d').drawImage(bmp, 0, 0);
-      bmp.close();
-      result.push(canvas.toDataURL('image/png'));
-    } catch {
-      // 解码失败 → 回退为原始 base64
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      result.push(`data:image/png;base64,${btoa(binary)}`);
+    // 第3步：hex → createImageBitmap → canvas → PNG
+    for (const hexStr of hexChunks) {
+      const len = Math.floor(hexStr.length / 2);
+      const bytes = new Uint8Array(len);
+      for (let j = 0; j < len; j++) {
+        bytes[j] = parseInt(hexStr.substring(j * 2, j * 2 + 2), 16);
+      }
+      try {
+        const blob = new Blob([bytes]);
+        const bmp = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bmp.width; canvas.height = bmp.height;
+        canvas.getContext('2d').drawImage(bmp, 0, 0);
+        bmp.close();
+        result.push(canvas.toDataURL('image/png'));
+      } catch {
+        console.warn('[sig] createImageBitmap failed, hexLen:', hexStr.length);
+      }
     }
   }
   return result;
@@ -646,6 +673,7 @@ async function onSigPaste(e) {
     console.log("[sig] fileSrcs:", fileSrcs.length, "rtfLen:", rtfData.length,
       "blips:", ["pngblip","jpegblip","wmetafile","emfblip"].map(k =>
         k+":"+(rtfData.match(new RegExp("\\\\"+k,"gi"))||[]).length).join(", "));
+    console.log("[sig] fileSrcs:", fileSrcs.length, "pictBlocks:", pictBlocks.length);
     const rtfImages = await extractRtfImages(rtfData);
     console.log("[sig] images:", rtfImages.length, "sizes:", rtfImages.map(i => i ? i.length : 0));
     // 文件路径去重
