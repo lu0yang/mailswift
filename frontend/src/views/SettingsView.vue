@@ -588,8 +588,8 @@ async function extractRtfImages(rtf) {
   console.log("[sig] pictBlocks:", pictBlocks.length);
 
   for (const block of pictBlocks) {
-    // 1. 循环删最内层 { ... }，直到没有多余的 {
-    let cleaned = block;
+    // 1. 去掉外层 {}，循环删最内层剩余 { ... }
+    let cleaned = block.slice(1, -1);
     let prev = "";
     while (prev !== cleaned) {
       prev = cleaned;
