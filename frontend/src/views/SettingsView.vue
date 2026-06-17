@@ -256,6 +256,7 @@ const dialog = useDialog();
 onMounted(() => {
   loadTemplates();
   loadSignatures();
+  loadDomains();
 });
 
 // ── Reset ────────────────────────────
