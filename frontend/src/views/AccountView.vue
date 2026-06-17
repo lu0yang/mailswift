@@ -119,7 +119,7 @@
     </div>
 
     <!-- 账号表单 -->
-    <AccountForm v-model="formData" />
+    <AccountForm v-model="formData" :key="formKey" />
 
     <!-- 正文编辑器 -->
     <div class="preview-card">
@@ -212,6 +212,7 @@ const userEditedBody = ref(false)
 const selectedTemplateId = ref(null)
 const selectedSignatureId = ref(null)
 const formData = ref({})
+const formKey = ref(0)
 const attachments = ref([])
 const templates = ref([])
 const signatures = ref([])
@@ -416,6 +417,7 @@ function loadDraftIntoForm() {
   recip.setCcTags(d.cc || '')
   body.value = d.body || ''
   formData.value = d.formData || {}
+  formKey.value++  // 强制重建子组件，确保数据同步
   if (d.body) userEditedBody.value = true  // 防止模板watch覆盖恢复的body
   draft.isDirty.value = false
   draft.suppress.value = false

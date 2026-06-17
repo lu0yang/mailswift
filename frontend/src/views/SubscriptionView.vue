@@ -119,7 +119,7 @@
     </div>
 
     <!-- 订阅表单 -->
-    <SubscriptionForm v-model="formData" />
+    <SubscriptionForm v-model="formData" :key="formKey" />
 
     <!-- 正文编辑器 -->
     <div class="preview-card">
@@ -212,6 +212,7 @@ const userEditedBody = ref(false)
 const selectedTemplateId = ref(null)
 const selectedSignatureId = ref(null)
 const formData = ref({})
+const formKey = ref(0)
 const attachments = ref([])
 const templates = ref([])
 const signatures = ref([])
@@ -412,6 +413,7 @@ function loadDraftIntoForm() {
   recip.setCcTags(d.cc || '')
   body.value = d.body || ''
   formData.value = d.formData || {}
+  formKey.value++
   if (d.body) userEditedBody.value = true
   draft.isDirty.value = false
   draft.suppress.value = false
