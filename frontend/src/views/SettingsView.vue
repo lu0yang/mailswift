@@ -566,42 +566,48 @@ function measurePreviewScale() {
 
 /**
  * 从 RTF 数据中提取嵌入的图片，返回 data URI 数组。
- * Outlook 将图片以 hex 编码嵌入 RTF 的 \pict 块中。
+ * Outlook 将 PNG/JPEG 以 hex 编码嵌入 RTF 的 \pict 块中。
+ * 直接定位 \pngblip 或 \jpegblip，然后向后找 hex 数据。
  */
 function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  // 匹配所有 \pict ... } 块
-  const pictRegex = /\{\\pict[^}]*?\}/gi;
-  let pictMatch;
-  while ((pictMatch = pictRegex.exec(rtf)) !== null) {
-    const block = pictMatch[0];
-
-    // 判断图片格式
-    let mime;
-    if (block.includes("\\pngblip")) mime = "image/png";
-    else if (block.includes("\\jpegblip")) mime = "image/jpeg";
-    else if (block.includes("\\wmetafile") || block.includes("\\emfblip")) mime = "image/png";
-    else continue; // 不认识，跳过
-
-    // 提取 hex 数据：控制词之后、} 之前的纯 hex 字符
-    // RTF 控制词以 \ 开头，过滤掉
-    const hexStart = block.search(/[\da-fA-F]{40,}/);
-    if (hexStart === -1) continue;
-    const hexChunk = block.slice(hexStart);
-    // 只保留 hex 字符，丢弃 }
-    const hexStr = hexChunk.replace(/[^\da-fA-F]/g, "");
-
-    if (hexStr.length < 100) continue;
-
-    // hex 字符串 → 二进制
-    const bytes = new Uint8Array(hexStr.length / 2);
-    for (let i = 0; i < hexStr.length; i += 2) {
-      bytes[i / 2] = parseInt(hexStr.substring(i, i + 2), 16);
+  const blipRegex = /\\(pngblip|jpegblip)(?:\\\w+)*(?:{.*?})*/gi;
+  let blipMatch;
+  while ((blipMatch = blipRegex.exec(rtf)) !== null) {
+    const mime = blipMatch[1] === "pngblip" ? "image/png" : "image/jpeg";
+    // hex 数据从匹配结束位置开始
+    let hexStart = blipMatch.index + blipMatch[0].length;
+    // 向后收集 hex 字符，直到遇到 } 或非 hex
+    let hexStr = "";
+    while (hexStart < rtf.length) {
+      const ch = rtf[hexStart];
+      if (ch === "}") break; // 块结束
+      if (/[0-9a-fA-F]/.test(ch)) {
+        hexStr += ch;
+      } else if (ch === "\\") {
+        // 遇到下一个控制词，跳过它
+        while (hexStart < rtf.length && rtf[hexStart] !== " " && rtf[hexStart] !== "}") {
+          hexStart++;
+        }
+        if (rtf[hexStart] === "}") break;
+      } else if (ch === "\r" || ch === "\n" || ch === " ") {
+        // 空白符，跳过
+      } else {
+        break; // 其他字符，停止
+      }
+      hexStart++;
     }
 
-    // 转 data URI
+    if (hexStr.length < 200) continue;
+
+    // hex 字符串 → base64
+    const len = Math.floor(hexStr.length / 2);
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
+    }
     let binary = "";
     for (let i = 0; i < bytes.length; i++) {
       binary += String.fromCharCode(bytes[i]);
