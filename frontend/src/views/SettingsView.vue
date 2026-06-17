@@ -572,80 +572,41 @@ async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  // 找到所有 {\pict 的位置，用括号计数提取整个块
   const pictBlocks = [];
   let searchFrom = 0;
   while (true) {
-    const idx = rtf.indexOf('{\\pict', searchFrom);
-    if (idx === -1) break;
-
-    // 从 {\pict 的 { 开始数括号
-    let depth = 0;
-    let end = -1;
-    for (let i = idx; i < rtf.length; i++) {
-      if (rtf[i] === '{') depth++;
-      else if (rtf[i] === '}') {
-        depth--;
-        if (depth === 0) { end = i; break; }
-      }
+    const start = rtf.indexOf('{\pict', searchFrom);
+    if (start === -1) break;
+    let depth = 0, end = -1;
+    for (let i = start; i < rtf.length; i++) {
+      if (rtf[i] === "{") depth++;
+      else if (rtf[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
     }
-    if (end > idx) {
-      pictBlocks.push(rtf.substring(idx, end + 1));
-    }
-    searchFrom = idx + 1;
+    if (end > start) pictBlocks.push(rtf.substring(start, end + 1));
+    searchFrom = start + 1;
   }
+  console.log("[sig] pictBlocks:", pictBlocks.length);
 
-  // 第2步：块内逐字符收集 hex — 跳过控制词、嵌套组、空白
-  console.log("[sig] pictBlocks:", pictBlocks.length, "sizes:", pictBlocks.map(b => b.length)); for (const block of pictBlocks) {
-    const hexChunks = [];
-    let i = 0;
-    while (i < block.length) {
-      const ch = block[i];
-      if (ch === '{') {
-        let depth = 1; i++;
-        while (i < block.length && depth > 0) {
-          if (block[i] === '{') depth++;
-          else if (block[i] === '}') depth--;
-          i++;
-        }
-        continue;
-      }
-      if (ch === '}') { i++; continue; }
-      if (ch === '\\') {
-        i++;
-        while (i < block.length && /[a-zA-Z0-9]/.test(block[i])) i++;
-        if (i < block.length && block[i] === ' ') i++;
-        continue;
-      }
-      if (/[0-9a-fA-F]/.test(ch)) {
-        let hex = '';
-        while (i < block.length && /[0-9a-fA-F]/.test(block[i])) {
-          hex += block[i]; i++;
-        }
-        if (hex.length >= 200) { hexChunks.push(hex); console.log("[sig] hexChunk len:", hex.length, "first 20:", hex.substring(0,20)); }
-        continue;
-      }
-      i++; // 空白、换行等
+  for (const block of pictBlocks) {
+    const hexStr = block.replace(/[^0-9a-fA-F]/g, "");
+    if (hexStr.length < 200) continue;
+    console.log("[sig] hexLen:", hexStr.length);
+
+    const len = Math.floor(hexStr.length / 2);
+    const bytes = new Uint8Array(len);
+    for (let j = 0; j < len; j++) {
+      bytes[j] = parseInt(hexStr.substring(j * 2, j * 2 + 2), 16);
     }
-
-    // 第3步：hex → createImageBitmap → canvas → PNG
-    for (const hexStr of hexChunks) {
-      const len = Math.floor(hexStr.length / 2);
-      const bytes = new Uint8Array(len);
-      for (let j = 0; j < len; j++) {
-        bytes[j] = parseInt(hexStr.substring(j * 2, j * 2 + 2), 16);
-      }
-      try {
-        const blob = new Blob([bytes]);
-        const bmp = await createImageBitmap(blob);
-        const canvas = document.createElement('canvas');
-        canvas.width = bmp.width; canvas.height = bmp.height;
-        canvas.getContext('2d').drawImage(bmp, 0, 0);
-        bmp.close();
-        result.push(canvas.toDataURL('image/png'));
-      } catch {
-        console.warn('[sig] createImageBitmap failed, hexLen:', hexStr.length);
-      }
+    try {
+      const blob = new Blob([bytes]);
+      const bmp = await createImageBitmap(blob);
+      const canvas = document.createElement("canvas");
+      canvas.width = bmp.width; canvas.height = bmp.height;
+      canvas.getContext("2d").drawImage(bmp, 0, 0);
+      bmp.close();
+      result.push(canvas.toDataURL("image/png"));
+    } catch {
+      console.warn("[sig] decode failed, hexLen:", hexStr.length);
     }
   }
   return result;
