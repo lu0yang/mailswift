@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy.dialects.mysql import LONGTEXT
 from .database import Base
 
 
@@ -68,7 +69,7 @@ class Signature(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("msw_users.id"), nullable=False)
     name = Column(String(255), nullable=False)
-    content = Column(Text, default="")
+    content = Column(LONGTEXT, default="")
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 
