@@ -600,7 +600,7 @@ async function extractRtfImages(rtf) {
     // 3. 提取纯 hex
     const hexStr = cleaned.replace(/[^0-9a-fA-F]/g, "");
     if (hexStr.length < 200) continue;
-    console.log("[sig] hexLen:", hexStr.length);
+    console.log("[sig] hexLen:", hexStr.length, "head:", hexStr.substring(0, 80));
 
     const len = Math.floor(hexStr.length / 2);
     const bytes = new Uint8Array(len);
