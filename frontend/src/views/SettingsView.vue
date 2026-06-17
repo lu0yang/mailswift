@@ -596,7 +596,7 @@ async function extractRtfImages(rtf) {
   }
 
   // 第2步：块内逐字符收集 hex — 跳过控制词、嵌套组、空白
-  for (const block of pictBlocks) {
+  console.log("[sig] pictBlocks:", pictBlocks.length); for (const block of pictBlocks) {
     const hexChunks = [];
     let i = 0;
     while (i < block.length) {
@@ -673,7 +673,6 @@ async function onSigPaste(e) {
     console.log("[sig] fileSrcs:", fileSrcs.length, "rtfLen:", rtfData.length,
       "blips:", ["pngblip","jpegblip","wmetafile","emfblip"].map(k =>
         k+":"+(rtfData.match(new RegExp("\\\\"+k,"gi"))||[]).length).join(", "));
-    console.log("[sig] fileSrcs:", fileSrcs.length, "pictBlocks:", pictBlocks.length);
     const rtfImages = await extractRtfImages(rtfData);
     console.log("[sig] images:", rtfImages.length, "sizes:", rtfImages.map(i => i ? i.length : 0));
     // 文件路径去重
