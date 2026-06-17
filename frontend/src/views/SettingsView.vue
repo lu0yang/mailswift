@@ -659,7 +659,7 @@ async function onSigPaste(e) {
       for (let i = 0; i < count; i++) {
         const dataUri = rtfImages[i];
         if (dataUri) {
-          processedHtml = processedHtml.replace(fileSrcs[i], dataUri);
+          processedHtml = processedHtml.replaceAll(fileSrcs[i], dataUri);
         }
       }
     }
