@@ -564,6 +564,53 @@ function measurePreviewScale() {
   });
 }
 
+/**
+ * 从 RTF 数据中提取嵌入的图片，返回 data URI 数组。
+ * Outlook 将图片以 hex 编码嵌入 RTF 的 \pict 块中。
+ */
+function extractRtfImages(rtf) {
+  const result = [];
+  if (!rtf) return result;
+
+  // 匹配所有 \pict ... } 块
+  const pictRegex = /\{\\pict[^}]*?\}/gi;
+  let pictMatch;
+  while ((pictMatch = pictRegex.exec(rtf)) !== null) {
+    const block = pictMatch[0];
+
+    // 判断图片格式
+    let mime;
+    if (block.includes("\\pngblip")) mime = "image/png";
+    else if (block.includes("\\jpegblip")) mime = "image/jpeg";
+    else if (block.includes("\\wmetafile") || block.includes("\\emfblip")) mime = "image/png";
+    else continue; // 不认识，跳过
+
+    // 提取 hex 数据：控制词之后、} 之前的纯 hex 字符
+    // RTF 控制词以 \ 开头，过滤掉
+    const hexStart = block.search(/[\da-fA-F]{40,}/);
+    if (hexStart === -1) continue;
+    const hexChunk = block.slice(hexStart);
+    // 只保留 hex 字符，丢弃 }
+    const hexStr = hexChunk.replace(/[^\da-fA-F]/g, "");
+
+    if (hexStr.length < 100) continue;
+
+    // hex 字符串 → 二进制
+    const bytes = new Uint8Array(hexStr.length / 2);
+    for (let i = 0; i < hexStr.length; i += 2) {
+      bytes[i / 2] = parseInt(hexStr.substring(i, i + 2), 16);
+    }
+
+    // 转 data URI
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    result.push(`data:${mime};base64,${btoa(binary)}`);
+  }
+  return result;
+}
+
 async function onSigPaste(e) {
   e.preventDefault();
   const rawHtml = e.clipboardData?.getData("text/html");
@@ -585,40 +632,18 @@ async function onSigPaste(e) {
 
     // 使用 Async Clipboard API 读取剪贴板中的图片（无需用户操作）
     // 首次使用浏览器可能弹权限提示，点"允许"后永久生效
-    try {
-      console.log('[签名图片] 开始读取剪贴板...');
-      const clipboardItems = await navigator.clipboard.read();
-      console.log('[签名图片] 剪贴板 items 数量:', clipboardItems.length);
+    // 从 RTF 提取嵌入的图片 hex 数据
+    const rtfData = e.clipboardData?.getData("text/rtf") || "";
+    const rtfImages = extractRtfImages(rtfData);
 
-      const imageBlobs = [];
-      for (const item of clipboardItems) {
-        console.log('[签名图片] item types:', item.types);
-        for (const type of item.types) {
-          if (type.startsWith("image/")) {
-            console.log('[签名图片] 找到图片 type:', type);
-            const blob = await item.getType(type);
-            imageBlobs.push(blob);
-          }
+    if (rtfImages.length > 0) {
+      const count = Math.min(fileSrcs.length, rtfImages.length);
+      for (let i = 0; i < count; i++) {
+        const dataUri = rtfImages[i];
+        if (dataUri) {
+          processedHtml = processedHtml.replace(fileSrcs[i], dataUri);
         }
       }
-      console.log('[签名图片] 获取到图片 blob 数量:', imageBlobs.length);
-
-      const count = Math.min(fileSrcs.length, imageBlobs.length);
-      for (let i = 0; i < count; i++) {
-        try {
-          const dataUri = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error("读取失败"));
-            reader.readAsDataURL(imageBlobs[i]);
-          });
-          console.log('[签名图片] 转换成功, dataUri 长度:', dataUri.length);
-          processedHtml = processedHtml.replace(fileSrcs[i], dataUri);
-        } catch (e) { console.error('[签名图片] FileReader 失败:', e); }
-      }
-    } catch (e) {
-      console.error('[签名图片] Clipboard API 失败:', e);
-      message.warning("无法读取剪贴板图片，请尝试重新复制后粘贴");
     }
 
     sigImageConverting.value = false;
