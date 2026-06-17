@@ -40,11 +40,9 @@
 <script setup>
 import { ref, computed, provide, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { isLoggedIn } from "@/api";
+import { isLoggedIn, getMe, removeToken, getDomains, DEFAULT_DOMAINS } from "@/api";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
-import SvgIcon from "@/components/SvgIcon.vue";
-import { getMe, removeToken, getDomains, DEFAULT_DOMAINS } from "@/api";
 
 const router = useRouter();
 
@@ -248,78 +246,5 @@ body {
   max-width: 720px;
   margin: 0 auto;
   width: 100%;
-}
-
-.account-switcher {
-  padding: 4px 0;
-}
-
-.switcher-title {
-  font-size: 13px;
-  color: #86868b;
-  padding: 4px 12px 8px;
-}
-
-.switcher-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: background 0.15s;
-}
-
-.switcher-item:hover {
-  background: #f5f5f7;
-}
-
-.switcher-item.active {
-  background: #e8f0fe;
-}
-
-.switcher-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #d0d0d0;
-  flex-shrink: 0;
-}
-
-.switcher-dot.active-dot {
-  background: #34c759;
-}
-
-.switcher-email {
-  font-size: 14px;
-  color: #1d1d1f;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.switcher-check {
-  color: #0071e3;
-  font-size: 14px;
-}
-
-.switcher-empty {
-  font-size: 13px;
-  color: #86868b;
-  padding: 12px;
-  text-align: center;
-}
-
-.switcher-footer {
-  border-top: 1px solid #f0f0f0;
-  margin-top: 4px;
-  padding: 8px 12px 0;
-}
-
-.switcher-login {
-  font-size: 12px;
-  color: #a1a1a6;
-  margin-bottom: 8px;
 }
 </style>

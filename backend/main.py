@@ -265,9 +265,8 @@ class EncodeImageRequest(BaseModel):
 
 @app.post("/api/encode-image")
 def encode_image(data: EncodeImageRequest):
-    from urllib.parse import urlparse, unquote
+    from urllib.parse import urlparse
     from urllib.request import url2pathname
-    import base64
     import mimetypes
 
     parsed = urlparse(data.url)
