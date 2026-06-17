@@ -607,17 +607,18 @@ async function extractRtfImages(rtf) {
     for (let j = 0; j < len; j++) {
       bytes[j] = parseInt(hexStr.substring(j * 2, j * 2 + 2), 16);
     }
-    try {
-      const blob = new Blob([bytes]);
-      const bmp = await createImageBitmap(blob);
-      const canvas = document.createElement("canvas");
-      canvas.width = bmp.width; canvas.height = bmp.height;
-      canvas.getContext("2d").drawImage(bmp, 0, 0);
-      bmp.close();
-      result.push(canvas.toDataURL("image/png"));
-    } catch {
-      console.warn("[sig] decode failed, hexLen:", hexStr.length);
-    }
+    // 用 <img> 标签解码（浏览器解码器比 createImageBitmap 更宽容）
+    let binary = "";
+    for (let j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+    const dataUri = "data:image/png;base64," + btoa(binary);
+    const ok = await new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = dataUri;
+    });
+    if (ok) result.push(dataUri);
+    else console.warn("[sig] decode failed, hexLen:", hexStr.length);
   }
   return result;
 }
