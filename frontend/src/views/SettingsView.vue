@@ -635,35 +635,23 @@ async function onSigPaste(e) {
   let processedHtml = rawHtml;
   if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
-
-    // 使用 Async Clipboard API 读取剪贴板中的图片（无需用户操作）
-    // 首次使用浏览器可能弹权限提示，点"允许"后永久生效
-    // 从 RTF 提取嵌入的图片 hex 数据
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
-    console.log('[签名图片] RTF 长度:', rtfData.length,
-      '  \\pngblip:', (rtfData.match(/\\pngblip/g) || []).length,
-      '  \\jpegblip:', (rtfData.match(/\\jpegblip/g) || []).length);
-
-    // 打印第一个 \pngblip 或 \jpegblip 前后 300 字符
-    const blipMatch = rtfData.match(/\\(?:png|jpeg)blip/);
-    if (blipMatch) {
-      const idx = blipMatch.index;
-      console.log('[签名图片] 第一个 blip 上下文:', rtfData.slice(Math.max(0, idx - 50), idx + 400));
+    // 统计所有 blip 类型
+    const allBlips = [];
+    for (const kw of ['pngblip', 'jpegblip', 'wmetafile', 'emfblip']) {
+      const re = new RegExp('\\\\' + kw, 'gi');
+      let m;
+      while ((m = re.exec(rtfData)) !== null) allBlips.push({ type: kw, pos: m.index });
     }
-
+    console.log('[签名图片] HTML中file://数量:', fileSrcs.length,
+      '\n  RTF中blip:', allBlips.map(b => b.type + '@' + b.pos).join(', '));
     const rtfImages = extractRtfImages(rtfData);
-    console.log('[签名图片] RTF 提取到图片数:', rtfImages.length);
-
-    if (rtfImages.length > 0) {
-      const count = Math.min(fileSrcs.length, rtfImages.length);
-      for (let i = 0; i < count; i++) {
-        const dataUri = rtfImages[i];
-        if (dataUri) {
-          processedHtml = processedHtml.replaceAll(fileSrcs[i], dataUri);
-        }
+    const count = Math.min(fileSrcs.length, rtfImages.length);
+    for (let i = 0; i < count; i++) {
+      if (rtfImages[i]) {
+        processedHtml = processedHtml.replaceAll(fileSrcs[i], rtfImages[i]);
       }
     }
-
     sigImageConverting.value = false;
   }
 
