@@ -579,17 +579,19 @@ async function onSigPaste(e) {
     fileSrcs.push(match[1]);
   }
 
+  console.log('[签名图片] 找到 file:// 路径数量:', fileSrcs.length, fileSrcs);
   let processedHtml = rawHtml;
   if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
 
     for (const src of fileSrcs) {
       try {
+        console.log('[签名图片] 正在转换:', src);
         const { data } = await encodeImage(src);
-        // 替换原始 HTML 中的 file:// 路径为 base64 data URI
+        console.log('[签名图片] 转换成功, data_uri长度:', data.data_uri.length);
         processedHtml = processedHtml.replace(src, data.data_uri);
-      } catch {
-        // 转换失败保留原始路径
+      } catch (err) {
+        console.error('[签名图片] 转换失败:', src, err);
       }
     }
 
