@@ -10,8 +10,9 @@ export const FIELD_HISTORY_KEYS = {
   subscription_name: 'mailswift_history_subscription_name',
 }
 
+import { DEFAULT_DOMAINS } from '@/api'
+
 const PRESET_KEY = 'mailswift_preset_domains'
-const DEFAULT_DOMAINS = ['@oe.21vianet.com', '@microsoft.com']
 
 export function useFieldHistory() {
   const subjectHistory = ref([])

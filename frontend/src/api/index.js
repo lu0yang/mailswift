@@ -1,5 +1,8 @@
 const BASE = "/api";
 
+// ── 默认预设域名（全局共享）─────────────────────────────
+export const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
+
 // ── Token & Password 管理 ──────────────────────────────
 
 const TOKEN_KEY = "mailswift_token";

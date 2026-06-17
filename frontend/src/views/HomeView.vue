@@ -335,7 +335,7 @@ import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
 import HighPriorityForm from "@/components/HighPriorityForm.vue";
-import { sendEmail, getTemplates, getSignatures, lookupIncident } from "@/api";
+import { sendEmail, getTemplates, getSignatures, lookupIncident, DEFAULT_DOMAINS } from "@/api";
 
 const message = useMessage();
 const dialog = useDialog();
@@ -400,7 +400,6 @@ function onDocumentClick(e) {
 
 // ── Recipient autocomplete ────────
 
-const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
 const PRESET_KEY = "mailswift_preset_domains";
 const subjectHistory = ref([]);
 const recipientHistory = ref([]);

@@ -44,7 +44,7 @@ import { isLoggedIn } from "@/api";
 import { NConfigProvider, NDialogProvider, NMessageProvider, NButton } from "naive-ui";
 import { zhCN, dateZhCN } from "naive-ui";
 import SvgIcon from "@/components/SvgIcon.vue";
-import { getMe, removeToken, getDomains } from "@/api";
+import { getMe, removeToken, getDomains, DEFAULT_DOMAINS } from "@/api";
 
 const router = useRouter();
 
@@ -79,8 +79,6 @@ function handleLogout() {
 
 provide("userEmail", userEmail);
 provide("accountEmail", userEmail);
-
-const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
 
 async function syncDomains() {
   try {

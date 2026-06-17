@@ -245,7 +245,7 @@ import RichTextEditor from "@/components/RichTextEditor.vue";
 import {
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
-  resetApp, encodeImage, getDomains, updateDomains,
+  resetApp, encodeImage, getDomains, updateDomains, DEFAULT_DOMAINS,
 } from "@/api";
 
 const message = useMessage();
@@ -483,7 +483,6 @@ async function loadSignatures() {
 
 // ── Preset domains ──────────────────
 
-const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
 const domains = ref([]);           // 全量（默认+自定义），仅用于展示
 let customDomains = [];            // 用户自己添加的，存数据库
 
