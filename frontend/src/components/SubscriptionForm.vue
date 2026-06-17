@@ -105,26 +105,16 @@ function removeSubscription(index) {
   local.subscriptions.splice(index, 1);
 }
 
-// Sync with parent formData (draft restore / clear)
-watch(() => props.modelValue?.subscriptions, (subs) => {
-  if (!subs || subs.length === 0) {
-    if (local.subscriptions.length > 0) {
-      suppressEmit = true;
-      local.subscriptions.splice(0, local.subscriptions.length, {
-        subscription_id: "", subscription_name: "", _key: ++keyCounter,
-      });
-      nextTick(() => { suppressEmit = false; });
-    }
-  } else {
+// Sync when parent clears form data
+watch(() => props.modelValue?.subscriptions?.length, (len) => {
+  if ((len === 0 || len === undefined) && local.subscriptions.length > 0) {
     suppressEmit = true;
-    local.subscriptions.splice(0, local.subscriptions.length, ...subs.map(s => ({
-      subscription_id: s.subscription_id || "",
-      subscription_name: s.subscription_name || "",
-      _key: ++keyCounter,
-    })));
+    local.subscriptions.splice(0, local.subscriptions.length, {
+      subscription_id: "", subscription_name: "", _key: ++keyCounter,
+    });
     nextTick(() => { suppressEmit = false; });
   }
-}, { deep: true });
+});
 
 // ── Subscription field history dropdown ────
 
