@@ -1,7 +1,7 @@
 const BASE = "/api";
 
 // ── 默认预设域名（全局共享）─────────────────────────────
-export const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com"];
+export const DEFAULT_DOMAINS = ["@oe.21vianet.com", "@microsoft.com", "@21vianet.com"];
 
 // ── Token & Password 管理 ──────────────────────────────
 

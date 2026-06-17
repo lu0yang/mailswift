@@ -89,10 +89,13 @@
             <div class="list-card-main">
               <div class="list-card-left">
                 <span class="list-card-name">{{ d }}</span>
+                <span class="list-card-badge" :class="DEFAULT_DOMAINS.includes(d) ? 'badge-default' : 'badge-personal'">
+                  {{ DEFAULT_DOMAINS.includes(d) ? '默认' : '个人' }}
+                </span>
               </div>
               <div class="list-card-right">
                 <n-button text size="tiny" @click="openDomainModal(i)">编辑</n-button>
-                <n-button text size="tiny" type="error" @click="removeDomain(i)">删除</n-button>
+                <n-button v-if="!DEFAULT_DOMAINS.includes(d)" text size="tiny" type="error" @click="removeDomain(i)">删除</n-button>
               </div>
             </div>
           </div>
@@ -908,6 +911,18 @@ async function handleDeleteSignature(id) {
   font-weight: 600;
   color: #1d1d1f;
 }
+
+.list-card-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.badge-default { background: #e8f0fe; color: #0071e3; }
+.badge-personal { background: #fff3e0; color: #e67e00; }
 
 .type-badge {
   font-size: 11px;
