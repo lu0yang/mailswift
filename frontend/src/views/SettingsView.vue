@@ -596,7 +596,7 @@ async function extractRtfImages(rtf) {
   }
 
   // 第2步：块内逐字符收集 hex — 跳过控制词、嵌套组、空白
-  console.log("[sig] pictBlocks:", pictBlocks.length); for (const block of pictBlocks) {
+  console.log("[sig] pictBlocks:", pictBlocks.length, "sizes:", pictBlocks.map(b => b.length)); for (const block of pictBlocks) {
     const hexChunks = [];
     let i = 0;
     while (i < block.length) {
@@ -622,7 +622,7 @@ async function extractRtfImages(rtf) {
         while (i < block.length && /[0-9a-fA-F]/.test(block[i])) {
           hex += block[i]; i++;
         }
-        if (hex.length >= 200) hexChunks.push(hex);
+        if (hex.length >= 200) { hexChunks.push(hex); console.log("[sig] hexChunk len:", hex.length, "first 20:", hex.substring(0,20)); }
         continue;
       }
       i++; // 空白、换行等
