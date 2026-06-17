@@ -634,20 +634,15 @@ async function onSigPaste(e) {
     // 首次使用浏览器可能弹权限提示，点"允许"后永久生效
     // 从 RTF 提取嵌入的图片 hex 数据
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
-    console.log('[签名图片] RTF 长度:', rtfData.length);
-    // 找出所有 \pict 块的位置
-    const pictPositions = [];
-    let pos = rtfData.indexOf('\\pict');
-    while (pos !== -1) {
-      pictPositions.push(pos);
-      pos = rtfData.indexOf('\\pict', pos + 1);
-    }
-    console.log('[签名图片] RTF 中 \\pict 出现次数:', pictPositions.length);
-    if (pictPositions.length > 0) {
-      // 打印第一个 pict 块前后 500 字符
-      const start = Math.max(0, pictPositions[0] - 20);
-      const end = Math.min(rtfData.length, pictPositions[0] + 600);
-      console.log('[签名图片] 第一个 pict 块上下文:', rtfData.slice(start, end));
+    console.log('[签名图片] RTF 长度:', rtfData.length,
+      '  \\pngblip:', (rtfData.match(/\\pngblip/g) || []).length,
+      '  \\jpegblip:', (rtfData.match(/\\jpegblip/g) || []).length);
+
+    // 打印第一个 \pngblip 或 \jpegblip 前后 300 字符
+    const blipMatch = rtfData.match(/\\(?:png|jpeg)blip/);
+    if (blipMatch) {
+      const idx = blipMatch.index;
+      console.log('[签名图片] 第一个 blip 上下文:', rtfData.slice(Math.max(0, idx - 50), idx + 400));
     }
 
     const rtfImages = extractRtfImages(rtfData);
