@@ -586,15 +586,22 @@ async function onSigPaste(e) {
     // 使用 Async Clipboard API 读取剪贴板中的图片（无需用户操作）
     // 首次使用浏览器可能弹权限提示，点"允许"后永久生效
     try {
+      console.log('[签名图片] 开始读取剪贴板...');
       const clipboardItems = await navigator.clipboard.read();
+      console.log('[签名图片] 剪贴板 items 数量:', clipboardItems.length);
+
       const imageBlobs = [];
       for (const item of clipboardItems) {
+        console.log('[签名图片] item types:', item.types);
         for (const type of item.types) {
           if (type.startsWith("image/")) {
-            imageBlobs.push(await item.getType(type));
+            console.log('[签名图片] 找到图片 type:', type);
+            const blob = await item.getType(type);
+            imageBlobs.push(blob);
           }
         }
       }
+      console.log('[签名图片] 获取到图片 blob 数量:', imageBlobs.length);
 
       const count = Math.min(fileSrcs.length, imageBlobs.length);
       for (let i = 0; i < count; i++) {
@@ -605,11 +612,12 @@ async function onSigPaste(e) {
             reader.onerror = () => reject(new Error("读取失败"));
             reader.readAsDataURL(imageBlobs[i]);
           });
+          console.log('[签名图片] 转换成功, dataUri 长度:', dataUri.length);
           processedHtml = processedHtml.replace(fileSrcs[i], dataUri);
-        } catch { /* */ }
+        } catch (e) { console.error('[签名图片] FileReader 失败:', e); }
       }
-    } catch {
-      // 权限被拒绝或 API 不可用，提示用户
+    } catch (e) {
+      console.error('[签名图片] Clipboard API 失败:', e);
       message.warning("无法读取剪贴板图片，请尝试重新复制后粘贴");
     }
 
