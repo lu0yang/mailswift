@@ -572,7 +572,8 @@ async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  const blipRegex = /\\(\w*blip)(?:\\\w+)*(?:{.*?})*/gi;
+  // 匹配所有图片格式: *blip (pngblip/jpegblip) + wmetafile + emfblip
+  const blipRegex = /\\(pngblip|jpegblip|wmetafile|emfblip|\w*blip)(?:\\\w+)*(?:{.*?})*/gi;
   let blipMatch;
   while ((blipMatch = blipRegex.exec(rtf)) !== null) {
     let hexStart = blipMatch.index + blipMatch[0].length;
