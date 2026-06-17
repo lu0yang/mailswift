@@ -566,17 +566,16 @@ function measurePreviewScale() {
 
 /**
  * 从 RTF 数据中提取嵌入的图片，返回 data URI 数组。
- * Outlook 将 PNG/JPEG 以 hex 编码嵌入 RTF 的 \pict 块中。
- * 直接定位 \pngblip 或 \jpegblip，然后向后找 hex 数据。
+ * 不限定 blip 类型 — 匹配任意 \xxxblip，通过文件头魔数判断真实格式。
  */
 async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  const blipRegex = /\\(pngblip|jpegblip|wmetafile|emfblip)(?:\\\w+)*(?:{.*?})*/gi;
+  // 匹配任意 \xxxblip 标记（pngblip, jpegblip, wmetafile, emfblip 等）
+  const blipRegex = /\\(\w*blip)(?:\\\w+)*(?:{.*?})*/gi;
   let blipMatch;
   while ((blipMatch = blipRegex.exec(rtf)) !== null) {
-    const blipType = blipMatch[1];
     let hexStart = blipMatch.index + blipMatch[0].length;
     let hexStr = "";
     while (hexStart < rtf.length) {
@@ -605,14 +604,25 @@ async function extractRtfImages(rtf) {
       bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
     }
 
-    // 转 base64 data URI
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    // 通过文件头魔数判断真实格式
+    const isPNG  = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+    const isJPEG = bytes[0] === 0xFF && bytes[1] === 0xD8;
+    const isGIF  = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
+    const isBMP  = bytes[0] === 0x42 && bytes[1] === 0x4D;
 
-    // WMF/EMF 矢量图尝试通过 canvas 转为 PNG
-    if (blipType === 'wmetafile' || blipType === 'emfblip') {
+    if (isPNG || isJPEG || isGIF || isBMP) {
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const mimeMap = { [true]: { [true]: '', [false]: '' } }; // ugly, just use if-else
+      let mime = 'image/png';
+      if (isJPEG) mime = 'image/jpeg';
+      else if (isGIF) mime = 'image/gif';
+      else if (isBMP) mime = 'image/bmp';
+      result.push(`data:${mime};base64,${btoa(binary)}`);
+    } else {
+      // 未知或 WMF/EMF 格式 → 尝试 canvas 渲染
       try {
-        const blob = new Blob([bytes], { type: 'image/wmf' });
+        const blob = new Blob([bytes]);
         const bmp = await createImageBitmap(blob);
         const canvas = document.createElement('canvas');
         canvas.width = bmp.width; canvas.height = bmp.height;
@@ -620,12 +630,11 @@ async function extractRtfImages(rtf) {
         bmp.close();
         result.push(canvas.toDataURL('image/png'));
       } catch {
-        // WMF 渲染失败，回退到原始格式
+        // 渲染失败 → 回退
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
         result.push(`data:image/png;base64,${btoa(binary)}`);
       }
-    } else {
-      const mime = blipType === 'pngblip' ? 'image/png' : 'image/jpeg';
-      result.push(`data:${mime};base64,${btoa(binary)}`);
     }
   }
   return result;
