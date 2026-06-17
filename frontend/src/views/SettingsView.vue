@@ -571,20 +571,7 @@ async function onSigPaste(e) {
 
   e.target.innerHTML = "";
 
-  // 从剪贴板获取图片文件（Outlook 复制时同时携带 HTML 和图片 blob）
-  const allTypes = [];
-  const imageBlobs = [];
-  if (e.clipboardData.items) {
-    for (const item of e.clipboardData.items) {
-      allTypes.push(item.type);
-      if (item.type.startsWith("image/")) {
-        imageBlobs.push(item.getAsFile());
-      }
-    }
-  }
-  console.log('[签名图片] 剪贴板所有类型:', allTypes, '  图片文件数:', imageBlobs.length);
-
-  // 从原始 HTML 提取 file:// 路径，用剪贴板图片 blob 替换
+  // 从原始 HTML 提取 file:// 路径
   const fileSrcs = [];
   const fileRegex = /src\s*=\s*\"(file:\/\/\/[^\"]+|[A-Za-z]:[\\\/][^\"]+)\"/gi;
   let match;
@@ -593,27 +580,74 @@ async function onSigPaste(e) {
   }
 
   let processedHtml = rawHtml;
-  if (fileSrcs.length > 0 && imageBlobs.length > 0) {
-    sigImageConverting.value = true;
-    const count = Math.min(fileSrcs.length, imageBlobs.length);
-
-    for (let i = 0; i < count; i++) {
-      const src = fileSrcs[i];
-      const blob = imageBlobs[i];
-      try {
-        const dataUri = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error("FileReader 读取失败"));
-          reader.readAsDataURL(blob);
-        });
-        processedHtml = processedHtml.replace(src, dataUri);
-      } catch {
-        // 单个图片失败不影响其他的
+  if (fileSrcs.length > 0) {
+    // 尝试从剪贴板直接获取图片 blob
+    const imageBlobs = [];
+    if (e.clipboardData.items) {
+      for (const item of e.clipboardData.items) {
+        if (item.type.startsWith("image/")) {
+          imageBlobs.push(item.getAsFile());
+        }
       }
     }
 
-    sigImageConverting.value = false;
+    if (imageBlobs.length > 0) {
+      // 路径A：剪贴板有图片文件 → 直接 FileReader 转 base64（无需用户操作）
+      const count = Math.min(fileSrcs.length, imageBlobs.length);
+      for (let i = 0; i < count; i++) {
+        try {
+          const dataUri = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error("读取失败"));
+            reader.readAsDataURL(imageBlobs[i]);
+          });
+          processedHtml = processedHtml.replace(fileSrcs[i], dataUri);
+        } catch { /* */ }
+      }
+    } else {
+      // 路径B：剪贴板无图片 → 弹出文件选择器让用户手动选
+      sigImageConverting.value = true;
+      const uniqueSrcs = [...new Set(fileSrcs)]; // 去重
+      const dataUris = [];
+
+      for (const src of uniqueSrcs) {
+        const dataUri = await new Promise((resolve) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/*";
+          input.style.display = "none";
+          document.body.appendChild(input);
+
+          // 从 file:// 路径推测文件名作为提示
+          const filename = src.split(/[\\/]/).pop() || "图片";
+          message.info(`请选择签名图片: ${filename}`);
+
+          input.onchange = () => {
+            const file = input.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            } else {
+              resolve(null);
+            }
+            document.body.removeChild(input);
+          };
+          input.oncancel = () => {
+            resolve(null);
+            document.body.removeChild(input);
+          };
+          input.click();
+        });
+
+        if (dataUri) {
+          processedHtml = processedHtml.replaceAll(src, dataUri);
+        }
+      }
+      sigImageConverting.value = false;
+    }
   }
 
   // 用处理后的 HTML 重新解析
