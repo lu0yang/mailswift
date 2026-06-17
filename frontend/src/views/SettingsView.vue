@@ -575,7 +575,7 @@ async function extractRtfImages(rtf) {
   const pictBlocks = [];
   let searchFrom = 0;
   while (true) {
-    const start = rtf.indexOf('{\pict', searchFrom);
+    const start = rtf.indexOf('{\\pict', searchFrom);
     if (start === -1) break;
     let depth = 0, end = -1;
     for (let i = start; i < rtf.length; i++) {
