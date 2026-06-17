@@ -634,7 +634,24 @@ async function onSigPaste(e) {
     // 首次使用浏览器可能弹权限提示，点"允许"后永久生效
     // 从 RTF 提取嵌入的图片 hex 数据
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
+    console.log('[签名图片] RTF 长度:', rtfData.length);
+    // 找出所有 \pict 块的位置
+    const pictPositions = [];
+    let pos = rtfData.indexOf('\\pict');
+    while (pos !== -1) {
+      pictPositions.push(pos);
+      pos = rtfData.indexOf('\\pict', pos + 1);
+    }
+    console.log('[签名图片] RTF 中 \\pict 出现次数:', pictPositions.length);
+    if (pictPositions.length > 0) {
+      // 打印第一个 pict 块前后 500 字符
+      const start = Math.max(0, pictPositions[0] - 20);
+      const end = Math.min(rtfData.length, pictPositions[0] + 600);
+      console.log('[签名图片] 第一个 pict 块上下文:', rtfData.slice(start, end));
+    }
+
     const rtfImages = extractRtfImages(rtfData);
+    console.log('[签名图片] RTF 提取到图片数:', rtfImages.length);
 
     if (rtfImages.length > 0) {
       const count = Math.min(fileSrcs.length, rtfImages.length);
