@@ -605,30 +605,11 @@ async function extractRtfImages(rtf) {
       bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
     }
 
-    // PNG → JPEG 压缩，减小体积
-    if (isPng) {
-      try {
-        const blob = new Blob([bytes], { type: "image/png" });
-        const bmp = await createImageBitmap(blob);
-        const canvas = document.createElement("canvas");
-        canvas.width = bmp.width;
-        canvas.height = bmp.height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(bmp, 0, 0);
-        bmp.close();
-        const jpegDataUri = canvas.toDataURL("image/jpeg", 0.8);
-        result.push(jpegDataUri);
-      } catch {
-        // 压缩失败回退到原图
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        result.push(`data:image/png;base64,${btoa(binary)}`);
-      }
-    } else {
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      result.push(`data:image/jpeg;base64,${btoa(binary)}`);
-    }
+    // 转 base64 data URI
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const mime = isPng ? "image/png" : "image/jpeg";
+    result.push(`data:${mime};base64,${btoa(binary)}`);
   }
   return result;
 }
