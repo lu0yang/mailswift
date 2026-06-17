@@ -248,7 +248,7 @@ import RichTextEditor from "@/components/RichTextEditor.vue";
 import {
   getTemplates, createTemplate, updateTemplate, deleteTemplate,
   getSignatures, createSignature, updateSignature, deleteSignature,
-  resetApp, encodeImage, getDomains, updateDomains, DEFAULT_DOMAINS,
+  resetApp, getDomains, updateDomains, DEFAULT_DOMAINS,
 } from "@/api";
 
 const message = useMessage();
@@ -571,7 +571,17 @@ async function onSigPaste(e) {
 
   e.target.innerHTML = "";
 
-  // 从原始 HTML 字符串提取 file:// 路径（浏览器安全策略可能过滤 DOM 中的 src）
+  // 从剪贴板获取图片文件（Outlook 复制时同时携带 HTML 和图片 blob）
+  const imageBlobs = [];
+  if (e.clipboardData.items) {
+    for (const item of e.clipboardData.items) {
+      if (item.type.startsWith("image/")) {
+        imageBlobs.push(item.getAsFile());
+      }
+    }
+  }
+
+  // 从原始 HTML 提取 file:// 路径，用剪贴板图片 blob 替换
   const fileSrcs = [];
   const fileRegex = /src\s*=\s*\"(file:\/\/\/[^\"]+|[A-Za-z]:[\\\/][^\"]+)\"/gi;
   let match;
@@ -579,19 +589,24 @@ async function onSigPaste(e) {
     fileSrcs.push(match[1]);
   }
 
-  console.log('[签名图片] 找到 file:// 路径数量:', fileSrcs.length, fileSrcs);
   let processedHtml = rawHtml;
-  if (fileSrcs.length > 0) {
+  if (fileSrcs.length > 0 && imageBlobs.length > 0) {
     sigImageConverting.value = true;
+    const count = Math.min(fileSrcs.length, imageBlobs.length);
 
-    for (const src of fileSrcs) {
+    for (let i = 0; i < count; i++) {
+      const src = fileSrcs[i];
+      const blob = imageBlobs[i];
       try {
-        console.log('[签名图片] 正在转换:', src);
-        const { data } = await encodeImage(src);
-        console.log('[签名图片] 转换成功, data_uri长度:', data.data_uri.length);
-        processedHtml = processedHtml.replace(src, data.data_uri);
-      } catch (err) {
-        console.error('[签名图片] 转换失败:', src, err);
+        const dataUri = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("FileReader 读取失败"));
+          reader.readAsDataURL(blob);
+        });
+        processedHtml = processedHtml.replace(src, dataUri);
+      } catch {
+        // 单个图片失败不影响其他的
       }
     }
 
