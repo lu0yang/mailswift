@@ -566,13 +566,12 @@ function measurePreviewScale() {
 
 /**
  * 从 RTF 数据中提取嵌入的图片，返回 data URI 数组。
- * 不限定 blip 类型 — 匹配任意 \xxxblip，通过文件头魔数判断真实格式。
+ * 统一走 createImageBitmap + canvas → PNG，让浏览器系统解码器识别所有格式。
  */
 async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
-  // 匹配任意 \xxxblip 标记（pngblip, jpegblip, wmetafile, emfblip 等）
   const blipRegex = /\\(\w*blip)(?:\\\w+)*(?:{.*?})*/gi;
   let blipMatch;
   while ((blipMatch = blipRegex.exec(rtf)) !== null) {
@@ -604,37 +603,21 @@ async function extractRtfImages(rtf) {
       bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
     }
 
-    // 通过文件头魔数判断真实格式
-    const isPNG  = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
-    const isJPEG = bytes[0] === 0xFF && bytes[1] === 0xD8;
-    const isGIF  = bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
-    const isBMP  = bytes[0] === 0x42 && bytes[1] === 0x4D;
-
-    if (isPNG || isJPEG || isGIF || isBMP) {
+    // 统一使用浏览器的系统解码器处理所有格式（PNG/JPEG/WMF/EMF 等）
+    try {
+      const blob = new Blob([bytes]);
+      const bmp = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      canvas.getContext('2d').drawImage(bmp, 0, 0);
+      bmp.close();
+      result.push(canvas.toDataURL('image/png'));
+    } catch {
+      // 解码失败 → 回退为原始 base64
       let binary = "";
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const mimeMap = { [true]: { [true]: '', [false]: '' } }; // ugly, just use if-else
-      let mime = 'image/png';
-      if (isJPEG) mime = 'image/jpeg';
-      else if (isGIF) mime = 'image/gif';
-      else if (isBMP) mime = 'image/bmp';
-      result.push(`data:${mime};base64,${btoa(binary)}`);
-    } else {
-      // 未知或 WMF/EMF 格式 → 尝试 canvas 渲染
-      try {
-        const blob = new Blob([bytes]);
-        const bmp = await createImageBitmap(blob);
-        const canvas = document.createElement('canvas');
-        canvas.width = bmp.width; canvas.height = bmp.height;
-        canvas.getContext('2d').drawImage(bmp, 0, 0);
-        bmp.close();
-        result.push(canvas.toDataURL('image/png'));
-      } catch {
-        // 渲染失败 → 回退
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        result.push(`data:image/png;base64,${btoa(binary)}`);
-      }
+      result.push(`data:image/png;base64,${btoa(binary)}`);
     }
   }
   return result;
@@ -663,6 +646,7 @@ async function onSigPaste(e) {
       " rtfLen:", rtfData.length,
       " blips:", ["pngblip","jpegblip","wmetafile"].map(k => k+":"+(rtfData.match(new RegExp("\\\\"+k,"gi"))||[]).length).join(", "));
     const rtfImages = await extractRtfImages(rtfData);
+    console.log("[sig] 提取到图片:", rtfImages.length, "长度:", rtfImages.map(i=>i?i.length:0));
     // 文件路径去重
 	    const uniqueSrcs = [...new Set(fileSrcs)];
 	    const count = Math.min(uniqueSrcs.length, rtfImages.length);
