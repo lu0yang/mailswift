@@ -581,18 +581,21 @@ async function onSigPaste(e) {
 
   let processedHtml = rawHtml;
   if (fileSrcs.length > 0) {
-    // 尝试从剪贴板直接获取图片 blob
-    const imageBlobs = [];
-    if (e.clipboardData.items) {
-      for (const item of e.clipboardData.items) {
-        if (item.type.startsWith("image/")) {
-          imageBlobs.push(item.getAsFile());
+    sigImageConverting.value = true;
+
+    // 使用 Async Clipboard API 读取剪贴板中的图片（无需用户操作）
+    // 首次使用浏览器可能弹权限提示，点"允许"后永久生效
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      const imageBlobs = [];
+      for (const item of clipboardItems) {
+        for (const type of item.types) {
+          if (type.startsWith("image/")) {
+            imageBlobs.push(await item.getType(type));
+          }
         }
       }
-    }
 
-    if (imageBlobs.length > 0) {
-      // 路径A：剪贴板有图片文件 → 直接 FileReader 转 base64（无需用户操作）
       const count = Math.min(fileSrcs.length, imageBlobs.length);
       for (let i = 0; i < count; i++) {
         try {
@@ -605,49 +608,12 @@ async function onSigPaste(e) {
           processedHtml = processedHtml.replace(fileSrcs[i], dataUri);
         } catch { /* */ }
       }
-    } else {
-      // 路径B：剪贴板无图片 → 弹出文件选择器让用户手动选
-      sigImageConverting.value = true;
-      const uniqueSrcs = [...new Set(fileSrcs)]; // 去重
-      const dataUris = [];
-
-      for (const src of uniqueSrcs) {
-        const dataUri = await new Promise((resolve) => {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = "image/*";
-          input.style.display = "none";
-          document.body.appendChild(input);
-
-          // 从 file:// 路径推测文件名作为提示
-          const filename = src.split(/[\\/]/).pop() || "图片";
-          message.info(`请选择签名图片: ${filename}`);
-
-          input.onchange = () => {
-            const file = input.files[0];
-            if (file) {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result);
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(file);
-            } else {
-              resolve(null);
-            }
-            document.body.removeChild(input);
-          };
-          input.oncancel = () => {
-            resolve(null);
-            document.body.removeChild(input);
-          };
-          input.click();
-        });
-
-        if (dataUri) {
-          processedHtml = processedHtml.replaceAll(src, dataUri);
-        }
-      }
-      sigImageConverting.value = false;
+    } catch {
+      // 权限被拒绝或 API 不可用，提示用户
+      message.warning("无法读取剪贴板图片，请尝试重新复制后粘贴");
     }
+
+    sigImageConverting.value = false;
   }
 
   // 用处理后的 HTML 重新解析
