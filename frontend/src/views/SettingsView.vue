@@ -566,38 +566,39 @@ function measurePreviewScale() {
 
 async function onSigPaste(e) {
   e.preventDefault();
-  const html = e.clipboardData?.getData("text/html");
-  if (!html) return;
+  const rawHtml = e.clipboardData?.getData("text/html");
+  if (!rawHtml) return;
 
   e.target.innerHTML = "";
 
-  // Parse HTML and find images that need base64 conversion
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const imgs = doc.querySelectorAll("img");
-  const fileImgs = [];
+  // 从原始 HTML 字符串提取 file:// 路径（浏览器安全策略可能过滤 DOM 中的 src）
+  const fileSrcs = [];
+  const fileRegex = /src\s*=\s*\"(file:\/\/\/[^\"]+|[A-Za-z]:[\\\/][^\"]+)\"/gi;
+  let match;
+  while ((match = fileRegex.exec(rawHtml)) !== null) {
+    fileSrcs.push(match[1]);
+  }
 
-  imgs.forEach((img) => {
-    const src = img.getAttribute("src");
-    if (src && (src.startsWith("file://") || /^[A-Z]:[/\\]/i.test(src))) {
-      fileImgs.push({ img, src });
-    }
-  });
-
-  if (fileImgs.length > 0) {
+  let processedHtml = rawHtml;
+  if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
 
-    for (const { img, src } of fileImgs) {
+    for (const src of fileSrcs) {
       try {
         const { data } = await encodeImage(src);
-        img.setAttribute("src", data.data_uri);
+        // 替换原始 HTML 中的 file:// 路径为 base64 data URI
+        processedHtml = processedHtml.replace(src, data.data_uri);
       } catch {
-        // Keep original src if conversion fails
+        // 转换失败保留原始路径
       }
     }
 
     sigImageConverting.value = false;
   }
+
+  // 用处理后的 HTML 重新解析
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(processedHtml, "text/html");
 
   // Vertically center all table cells (Outlook defaults to top)
   doc.querySelectorAll("td").forEach((td) => {
