@@ -569,50 +569,66 @@ function measurePreviewScale() {
  * Outlook 将 PNG/JPEG 以 hex 编码嵌入 RTF 的 \pict 块中。
  * 直接定位 \pngblip 或 \jpegblip，然后向后找 hex 数据。
  */
-function extractRtfImages(rtf) {
+async function extractRtfImages(rtf) {
   const result = [];
   if (!rtf) return result;
 
   const blipRegex = /\\(pngblip|jpegblip)(?:\\\w+)*(?:{.*?})*/gi;
   let blipMatch;
   while ((blipMatch = blipRegex.exec(rtf)) !== null) {
-    const mime = blipMatch[1] === "pngblip" ? "image/png" : "image/jpeg";
-    // hex 数据从匹配结束位置开始
+    const isPng = blipMatch[1] === "pngblip";
     let hexStart = blipMatch.index + blipMatch[0].length;
-    // 向后收集 hex 字符，直到遇到 } 或非 hex
     let hexStr = "";
     while (hexStart < rtf.length) {
       const ch = rtf[hexStart];
-      if (ch === "}") break; // 块结束
+      if (ch === "}") break;
       if (/[0-9a-fA-F]/.test(ch)) {
         hexStr += ch;
       } else if (ch === "\\") {
-        // 遇到下一个控制词，跳过它
         while (hexStart < rtf.length && rtf[hexStart] !== " " && rtf[hexStart] !== "}") {
           hexStart++;
         }
         if (rtf[hexStart] === "}") break;
       } else if (ch === "\r" || ch === "\n" || ch === " ") {
-        // 空白符，跳过
+        // skip
       } else {
-        break; // 其他字符，停止
+        break;
       }
       hexStart++;
     }
 
     if (hexStr.length < 200) continue;
 
-    // hex 字符串 → base64
     const len = Math.floor(hexStr.length / 2);
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
       bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
     }
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+
+    // PNG → JPEG 压缩，减小体积
+    if (isPng) {
+      try {
+        const blob = new Blob([bytes], { type: "image/png" });
+        const bmp = await createImageBitmap(blob);
+        const canvas = document.createElement("canvas");
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bmp, 0, 0);
+        bmp.close();
+        const jpegDataUri = canvas.toDataURL("image/jpeg", 0.8);
+        result.push(jpegDataUri);
+      } catch {
+        // 压缩失败回退到原图
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        result.push(`data:image/png;base64,${btoa(binary)}`);
+      }
+    } else {
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      result.push(`data:image/jpeg;base64,${btoa(binary)}`);
     }
-    result.push(`data:${mime};base64,${btoa(binary)}`);
   }
   return result;
 }
@@ -636,7 +652,7 @@ async function onSigPaste(e) {
   if (fileSrcs.length > 0) {
     sigImageConverting.value = true;
     const rtfData = e.clipboardData?.getData("text/rtf") || "";
-    const rtfImages = extractRtfImages(rtfData);
+    const rtfImages = await extractRtfImages(rtfData);
     // 文件路径去重
 	    const uniqueSrcs = [...new Set(fileSrcs)];
 	    const count = Math.min(uniqueSrcs.length, rtfImages.length);

@@ -1,7 +1,6 @@
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
-from sqlalchemy.dialects.mysql import LONGTEXT
 from .database import Base
 
 
@@ -58,7 +57,7 @@ class EmailTemplate(Base):
     user_id = Column(Integer, ForeignKey("msw_users.id"), nullable=True)
     name = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)
-    content = Column(LONGTEXT, default="")
+    content = Column(Text, default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone(timedelta(hours=8))))
 
 
@@ -84,7 +83,7 @@ class EmailHistory(Base):
     recipient = Column(String(255), nullable=False)
     cc = Column(Text, default="")
     subject = Column(String(500), default="")
-    body = Column(LONGTEXT, default="")
+    body = Column(Text, default="")
     status = Column(String(20), nullable=False)
     error_message = Column(Text, default="")
     template_id = Column(Integer, nullable=True)
