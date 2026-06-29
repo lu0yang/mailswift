@@ -335,7 +335,8 @@ import RichTextEditor from "@/components/RichTextEditor.vue";
 import AccountForm from "@/components/AccountForm.vue";
 import SubscriptionForm from "@/components/SubscriptionForm.vue";
 import HighPriorityForm from "@/components/HighPriorityForm.vue";
-import { sendEmail, getTemplates, getSignatures, lookupIncident, DEFAULT_DOMAINS } from "@/api";
+import { sendEmail, getTemplates, lookupIncident, DEFAULT_DOMAINS } from "@/api";
+import { useSignature } from "@/composables/useSignature";
 
 const message = useMessage();
 const dialog = useDialog();
@@ -343,7 +344,6 @@ const accountEmail = inject("accountEmail", ref(""));
 
 const emailType = ref("account");
 const selectedTemplateId = ref(null);
-const selectedSignatureId = ref(null);
 const subject = ref("");
 const recipientTags = ref([]);
 const recipientInput = ref("");
@@ -366,10 +366,12 @@ const lookupLoading = ref(false);
 const lookupResult = ref(null);  // null | { found: true, ticketId } | { found: false }
 const formData = ref({});
 const templates = ref([]);
-const signatures = ref([]);
 const bodySource = ref("");
 const isDirty = ref(false);
 const suppressDirty = ref(true); // suppressed until init completes
+
+const { signatures, selectedSignatureId, signatureOptions, signatureHtml, load: loadSignatures, autoSelectDefault, resetToDefault: resetSignature } = useSignature();
+
 const subjectDropdownShow = ref(false);
 const recipientDropdownShow = ref(false);
 const ccDropdownShow = ref(false);
@@ -509,13 +511,6 @@ const templateOptions = computed(() =>
     .map((t) => ({ label: t.name, value: t.id }))
 );
 
-const signatureOptions = computed(() =>
-  signatures.value.map((s) => ({
-    label: s.is_default ? s.name + " （默认）" : s.name,
-    value: s.id,
-  }))
-);
-
 const previewEmailSubject = computed(() => {
   if (emailType.value !== "high_priority") return "";
   const d = formData.value || {};
@@ -575,11 +570,8 @@ async function handleLookupIncident() {
 
 const previewHtml = computed(() => {
   let html = body.value || "";
-  if (selectedSignatureId.value) {
-    const sig = signatures.value.find((s) => s.id === selectedSignatureId.value);
-    if (sig && sig.content) {
-      html += "<br>" + sig.content;
-    }
+  if (selectedSignatureId.value && signatureHtml.value) {
+    html += signatureHtml.value;
   }
   return html;
 });
@@ -674,12 +666,6 @@ const canSend = computed(() => sendHints.value.length === 0);
 
 // ── Lifecycle ───────────────────────
 
-function autoSelectDefaultSignature() {
-  if (selectedSignatureId.value) return; // already selected
-  const def = signatures.value.find((s) => s.is_default);
-  if (def) selectedSignatureId.value = def.id;
-}
-
 function onBeforeUnload(e) {
   if (isDirty.value) {
     e.preventDefault();
@@ -689,10 +675,9 @@ function onBeforeUnload(e) {
 
 onMounted(async () => {
   try {
-    const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()]);
+    const [tRes] = await Promise.all([getTemplates(), loadSignatures()]);
     templates.value = tRes.data;
-    signatures.value = sRes.data;
-    autoSelectDefaultSignature();
+    autoSelectDefault();
   } catch { /* ignore */ }
   loadAllFieldHistories();
   loadDraft();
@@ -709,10 +694,9 @@ onBeforeUnmount(() => {
 
 onActivated(async () => {
   try {
-    const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()]);
+    const [tRes] = await Promise.all([getTemplates(), loadSignatures()]);
     templates.value = tRes.data;
-    signatures.value = sRes.data;
-    autoSelectDefaultSignature();
+    autoSelectDefault();
     if (selectedTemplateId.value) {
       const t = templates.value.find((tp) => tp.id === selectedTemplateId.value);
       if (t) {
@@ -847,7 +831,7 @@ function doSwitchType(type) {
   lookupTicketId.value = "";
   lookupResult.value = null;
   loadDraft();
-  autoSelectDefaultSignature();
+  autoSelectDefault();
   suppressDirty.value = false;
 }
 
@@ -888,7 +872,7 @@ function switchType(type) {
       updateHtml.value = "";
       lookupTicketId.value = "";
       lookupResult.value = null;
-      autoSelectDefaultSignature();
+      autoSelectDefault();
       suppressDirty.value = false;
     },
     onClose: () => {
@@ -954,7 +938,7 @@ function onTemplateChange(id) {
       body.value = renderTemplateContent(t.content);
     }
     selectedSignatureId.value = null;
-    autoSelectDefaultSignature();
+    autoSelectDefault();
   }
 }
 

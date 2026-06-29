@@ -190,10 +190,11 @@ import { NInput, NSelect, NButton, NModal, NTooltip, useMessage } from 'naive-ui
 import SvgIcon from '@/components/SvgIcon.vue'
 import RichTextEditor from '@/components/RichTextEditor.vue'
 import AccountForm from '@/components/AccountForm.vue'
-import { sendEmail, getTemplates, getSignatures } from '@/api'
+import { sendEmail, getTemplates } from '@/api'
 import { useDraft } from '@/composables/useDraft'
 import { useFieldHistory, FIELD_HISTORY_KEYS } from '@/composables/useFieldHistory'
 import { useRecipients } from '@/composables/useRecipients'
+import { useSignature } from '@/composables/useSignature'
 
 const message = useMessage()
 const accountEmail = inject('accountEmail', ref(''))
@@ -210,15 +211,15 @@ const body = ref('')
 const bodySource = ref('')
 const userEditedBody = ref(false)
 const selectedTemplateId = ref(null)
-const selectedSignatureId = ref(null)
 const formData = ref({})
 const formKey = ref(0)
 const attachments = ref([])
 const templates = ref([])
-const signatures = ref([])
 const previewVisible = ref(false)
 const sending = ref(false)
 const rteRef = ref(null)
+
+const { signatures, selectedSignatureId, signatureOptions, signatureHtml, init: initSignatures, resetToDefault: resetSignature } = useSignature()
 
 // ── Dropdown state ──
 const subjectDropdownShow = ref(false)
@@ -263,20 +264,10 @@ const templateOptions = computed(() =>
   templates.value.filter(t => t.type === 'account').map(t => ({ label: t.name, value: t.id }))
 )
 
-const signatureOptions = computed(() =>
-  signatures.value.map(s => ({
-    label: s.is_default ? s.name + ' （默认）' : s.name,
-    value: s.id,
-  }))
-)
-
 const previewHtml = computed(() => {
   let html = body.value || ''
-  if (selectedSignatureId.value) {
-    const sig = signatures.value.find(s => s.id === selectedSignatureId.value)
-    if (sig && sig.content) {
-      html += '<br>' + sig.content
-    }
+  if (selectedSignatureId.value && signatureHtml.value) {
+    html += signatureHtml.value
   }
   return html
 })
@@ -358,15 +349,8 @@ function onTemplateChange(id) {
     bodySource.value = t.content
     userEditedBody.value = false
     body.value = renderTemplateContent(t.content)
-    selectedSignatureId.value = null
-    autoSelectDefaultSignature()
+    resetSignature()
   }
-}
-
-function autoSelectDefaultSignature() {
-  if (selectedSignatureId.value) return
-  const def = signatures.value.find(s => s.is_default)
-  if (def) selectedSignatureId.value = def.id
 }
 
 // ── Send hints ──
@@ -519,10 +503,8 @@ function formatSize(bytes) {
 
 onMounted(async () => {
   try {
-    const [tRes, sRes] = await Promise.all([getTemplates(), getSignatures()])
+    const [tRes] = await Promise.all([getTemplates(), initSignatures()])
     templates.value = tRes.data
-    signatures.value = sRes.data
-    autoSelectDefaultSignature()
   } catch { /* */ }
   history.loadAll()
   loadDraftIntoForm()
