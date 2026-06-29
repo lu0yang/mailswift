@@ -196,7 +196,7 @@
         <details class="preview-details" style="margin-top:12px">
           <summary class="preview-summary">预览效果</summary>
           <div :style="sigPreviewScale < 1 ? { transform: `scale(${sigPreviewScale})`, transformOrigin: 'top left', width: `${100 / sigPreviewScale}%` } : {}">
-            <div class="preview-box" v-html="sigForm.content"></div>
+            <div class="preview-box" v-html="sigPreviewHtml"></div>
           </div>
         </details>
       </div>
@@ -523,6 +523,16 @@ const editingSigId = ref(null);
 const sigForm = ref({ name: "", content: "", is_default: false });
 const sigPreviewScale = ref(1.0);
 
+// 编辑签名时保留原始 HTML 结构，Tiptap 只编辑文本，
+// 文字变更合并回原始 HTML，表格/图片布局不受影响
+const sigOriginalHtml = ref("");
+
+/** 预览 HTML：将 Tiptap 的文字编辑合并回原始结构，保持图片/表格布局 */
+const sigPreviewHtml = computed(() => {
+  if (!sigOriginalHtml.value) return sigForm.value.content;
+  return mergeTextIntoOriginal(sigOriginalHtml.value, sigForm.value.content);
+});
+
 // ── Signature import from Outlook files ──
 
 const sigImportVisible = ref(false);
@@ -654,16 +664,55 @@ function measurePreviewScale() {
 }
 
 
+/**
+ * 将 Tiptap 编辑后的文本合并回原始 HTML。
+ * 保留原始结构（表格/图片/样式），仅替换文字节点。
+ */
+function mergeTextIntoOriginal(originalHtml, tiptapHtml) {
+  if (!originalHtml) return tiptapHtml || "";
+  if (!tiptapHtml) return originalHtml;
+
+  const origDoc = new DOMParser().parseFromString(originalHtml, "text/html");
+  const editDoc = new DOMParser().parseFromString(tiptapHtml, "text/html");
+
+  // 收集 Tiptap 输出中所有非空文本
+  const editTexts = [];
+  const ew = editDoc.createTreeWalker(editDoc.body, NodeFilter.SHOW_TEXT);
+  while (ew.nextNode()) {
+    const t = ew.currentNode.textContent || "";
+    if (t.trim()) editTexts.push(t);
+  }
+
+  // 按顺序替换原始 HTML 中对应位置的文字
+  let idx = 0;
+  const ow = origDoc.createTreeWalker(origDoc.body, NodeFilter.SHOW_TEXT);
+  while (ow.nextNode()) {
+    const node = ow.currentNode;
+    // 跳过图片 alt 文本
+    if (node.parentElement?.tagName === "IMG") continue;
+    const t = node.textContent || "";
+    if (!t.trim()) continue;
+    if (idx < editTexts.length) {
+      node.textContent = editTexts[idx];
+      idx++;
+    }
+  }
+
+  return origDoc.body.innerHTML;
+}
+
 function openSignatureModal(sig) {
   if (sig) {
     editingSigId.value = sig.id;
+    sigOriginalHtml.value = sig.content;
     sigForm.value = { name: sig.name, content: sig.content, is_default: sig.is_default };
   } else {
     editingSigId.value = null;
+    sigOriginalHtml.value = "";
     sigForm.value = { name: "", content: "", is_default: false };
   }
   sigModalVisible.value = true;
-  if (sigForm.value.content) measurePreviewScale();
+  if (sigPreviewHtml.value) measurePreviewScale();
 }
 
 async function handleSaveSignature() {
@@ -672,8 +721,8 @@ async function handleSaveSignature() {
     return;
   }
 
-  // Ensure every signature carries max-width:600px for consistent rendering
-  let content = sigForm.value.content || "";
+  // Merge Tiptap text edits back into original HTML structure, then wrap
+  let content = sigPreviewHtml.value || "";
   if (content && !/max-width\s*:\s*600px/i.test(content)) {
     content = '<div style="max-width:600px;">' + content + "</div>";
   }
