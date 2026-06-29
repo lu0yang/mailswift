@@ -578,6 +578,8 @@ def send_email_api(
         raise HTTPException(status_code=400, detail="密码不能为空")
 
     body_html = data.body
+    if body_html:
+        body_html = '<div style="font-family: Calibri, \'Segoe UI\', sans-serif;">' + body_html + '</div>'
 
     if data.email_type == "account" and not data.accounts:
         raise HTTPException(status_code=400, detail="请至少添加一条账号")
@@ -589,7 +591,9 @@ def send_email_api(
     if data.signature_id:
         sig = db.query(Signature).filter(Signature.id == data.signature_id).first()
         if sig and sig.content:
-            if "sig-paste-wrap" in sig.content:
+            # All new signatures carry max-width:600px; keep the check for
+            # legacy signatures saved before this guarantee was enforced.
+            if "max-width:600px" in sig.content:
                 body_html += "\n<br>\n" + sig.content
             else:
                 body_html += "\n<br>\n<div style=\"max-width:600px;\">" + sig.content + "</div>"
