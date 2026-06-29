@@ -191,44 +191,14 @@
         <n-input v-model:value="sigForm.name" placeholder="例如：工作签名" size="large" />
       </div>
       <div class="modal-field">
-        <div class="sig-mode-bar">
-          <span class="field-label" style="margin-bottom:0">签名内容</span>
-          <div class="sig-mode-tabs">
-            <button
-              class="sig-mode-btn"
-              :class="{ active: sigMode === 'richtext' }"
-              @click="sigMode = 'richtext'"
-            >富文本编辑</button>
-            <button
-              class="sig-mode-btn"
-              :class="{ active: sigMode === 'html' }"
-              @click="sigMode = 'html'"
-            >从 Outlook 粘贴</button>
+        <label class="field-label">签名内容</label>
+        <RichTextEditor v-model="sigForm.content" />
+        <details class="preview-details" style="margin-top:12px">
+          <summary class="preview-summary">预览效果</summary>
+          <div :style="sigPreviewScale < 1 ? { transform: `scale(${sigPreviewScale})`, transformOrigin: 'top left', width: `${100 / sigPreviewScale}%` } : {}">
+            <div class="preview-box" v-html="sigForm.content"></div>
           </div>
-        </div>
-        <RichTextEditor v-if="sigMode === 'richtext'" v-model="sigForm.content" />
-        <div v-else class="html-paste-wrap">
-          <div
-            class="paste-zone"
-            :class="{ 'has-content': sigForm.content }"
-            contenteditable
-            @paste="onSigPaste"
-            tabindex="0"
-          >
-            <div v-if="!sigForm.content && !sigImageConverting" class="paste-placeholder">
-              从 Outlook 复制签名后，在此处 Ctrl+V 粘贴
-            </div>
-            <div v-else-if="sigImageConverting" class="paste-converting">正在处理图片…</div>
-            <div v-else class="paste-done">已捕获签名</div>
-          </div>
-          <div class="paste-hint">点击上方区域后按 Ctrl+V 粘贴，工具自动提取 HTML 格式</div>
-          <details class="preview-details" style="margin-top:12px">
-            <summary class="preview-summary">预览效果</summary>
-            <div :style="sigPreviewScale < 1 ? { transform: `scale(${sigPreviewScale})`, transformOrigin: 'top left', width: `${100 / sigPreviewScale}%` } : {}">
-              <div class="preview-box" v-html="sigForm.content"></div>
-            </div>
-          </details>
-        </div>
+        </details>
       </div>
       <div class="modal-field">
         <n-checkbox v-model:checked="sigForm.is_default">设为默认签名</n-checkbox>
@@ -663,10 +633,6 @@ function cleanOutlookHtml(doc) {
       p.querySelectorAll("o\\:p").forEach((op) => op.remove());
     }
   });
-
-  // Force all images to their natural resolution. Outlook wraps them in
-  // tables with hardcoded cell sizes; rather than chasing every attribute,
-  // we use !important to reclaim control.
   doc.querySelectorAll("img").forEach((img) => {
     img.removeAttribute("naturalheight");
     img.removeAttribute("naturalwidth");
@@ -674,20 +640,27 @@ function cleanOutlookHtml(doc) {
     img.style.setProperty("height", "auto", "important");
     img.style.setProperty("max-width", "100%", "important");
   });
-
-  sigForm.value.content = '<div class="sig-paste-wrap" style="max-width:600px;">' + doc.body.innerHTML + '</div>';
-  measurePreviewScale();
 }
+
+function measurePreviewScale() {
+  nextTick(() => {
+    // All signatures are now wrapped in max-width:600px div — pick the
+    // first child of the preview box regardless of CSS class name.
+    const wrap = document.querySelector(".preview-box > div");
+    if (!wrap) return;
+    const h = wrap.scrollHeight;
+    sigPreviewScale.value = h > 200 ? Math.max(0.3, 200 / h) : 1.0;
+  });
+}
+
 
 function openSignatureModal(sig) {
   if (sig) {
     editingSigId.value = sig.id;
     sigForm.value = { name: sig.name, content: sig.content, is_default: sig.is_default };
-    sigMode.value = /<table|<img|<td|<tr|style="/i.test(sig.content) ? "html" : "richtext";
   } else {
     editingSigId.value = null;
     sigForm.value = { name: "", content: "", is_default: false };
-    sigMode.value = "richtext";
   }
   sigModalVisible.value = true;
   if (sigForm.value.content) measurePreviewScale();
@@ -698,12 +671,20 @@ async function handleSaveSignature() {
     message.warning("请输入签名名称");
     return;
   }
+
+  // Ensure every signature carries max-width:600px for consistent rendering
+  let content = sigForm.value.content || "";
+  if (content && !/max-width\s*:\s*600px/i.test(content)) {
+    content = '<div style="max-width:600px;">' + content + "</div>";
+  }
+
   sigSaving.value = true;
   try {
+    const payload = { ...sigForm.value, content };
     if (editingSigId.value) {
-      await updateSignature(editingSigId.value, sigForm.value);
+      await updateSignature(editingSigId.value, payload);
     } else {
-      await createSignature(sigForm.value);
+      await createSignature(payload);
     }
     message.success("签名已保存");
     sigModalVisible.value = false;
@@ -1239,94 +1220,6 @@ async function handleBatchImport() {
 }
 
 /* ── Signature mode tabs ───────────── */
-
-.sig-mode-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.sig-mode-tabs {
-  display: flex;
-  gap: 1px;
-  background: #e0e0e0;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.sig-mode-btn {
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border: none;
-  background: #fff;
-  color: #6e6e73;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.sig-mode-btn:hover {
-  color: #1d1d1f;
-}
-
-.sig-mode-btn.active {
-  background: #0071e3;
-  color: #fff;
-}
-
-.html-paste-wrap {
-  margin-top: 6px;
-}
-
-.paste-zone {
-  border: 2px dashed #d0d0d0;
-  border-radius: 10px;
-  min-height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: text;
-  transition: border-color 0.2s, background 0.2s;
-  outline: none;
-  padding: 16px;
-}
-
-.paste-zone:focus {
-  border-color: #0071e3;
-  background: #f0f7ff;
-}
-
-.paste-zone.has-content {
-  border-style: solid;
-  border-color: #34c759;
-  background: #e8f8ed;
-}
-
-.paste-placeholder {
-  color: #86868b;
-  font-size: 14px;
-  text-align: center;
-  pointer-events: none;
-}
-
-.paste-converting {
-  color: #f59e0b;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.paste-done {
-  color: #34c759;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.paste-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #86868b;
-}
 
 /* ── Modal ────────────────────────── */
 
