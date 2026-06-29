@@ -25,5 +25,5 @@ def get_db():
 
 def init_db():
     ensure_database_exists()
-    from .models import User, EmailHistory, IncidentStore  # noqa: F401
+    from .models import User, EmailTemplate, Signature, EmailHistory, IncidentStore  # noqa: F401
     Base.metadata.create_all(bind=engine)
