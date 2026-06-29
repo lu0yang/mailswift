@@ -2,8 +2,10 @@ import base64
 import logging
 import re
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
@@ -32,8 +34,35 @@ else:
 
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# ── Logging ─────────────────────────────────────────────────
+LOG_DIR = BASE_DIR / "backend" / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "mailswift.log"
+
+_log_fmt = logging.Formatter(
+    "%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+# 文件 handler（滚动，保持最近 5 个，每个最大 2MB）
+_file_handler = RotatingFileHandler(
+    str(LOG_FILE), maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8"
+)
+_file_handler.setFormatter(_log_fmt)
+_file_handler.setLevel(logging.INFO)
+
+# 控制台 handler
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_log_fmt)
+_console_handler.setLevel(logging.INFO)
+
+# 直接操作 root logger（兼容已有 handler 的情况）
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.INFO)
+_root_logger.handlers.clear()
+_root_logger.addHandler(_file_handler)
+_root_logger.addHandler(_console_handler)
+
+logger = logging.getLogger("mailswift")
 
 
 def _migrate_schema(db: Session):
@@ -128,6 +157,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Request logging middleware ──────────
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    elapsed_ms = (time.time() - start) * 1000
+
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "-")
+    # 从 auth header 中提取 token 前 8 位用于识别
+    auth = request.headers.get("authorization", "")
+    token_hint = ""
+    if auth.startswith("Bearer "):
+        token_hint = auth[7:15] + "…"
+
+    logger.info(
+        "REQ | %s | %s %s | %s | %.0fms | token=%s",
+        client_ip, request.method, request.url.path,
+        response.status_code, elapsed_ms, token_hint or "-",
+    )
+    return response
 
 # ── Pydantic schemas ────────────────────────────────────
 
@@ -247,8 +298,10 @@ class SignatureResponse(BaseModel):
 def api_login(data: LoginRequest, db: Session = Depends(get_db)):
     token = login_or_register(db, data.email, data.password)
     if not token:
+        logger.warning("LOGIN FAIL | email=%s", data.email)
         raise HTTPException(status_code=401, detail="邮箱或密码错误，请检查后重试")
     user = db.query(User).filter(User.email == data.email).first()
+    logger.info("LOGIN OK | email=%s | display=%s", user.email, user.display_name or "-")
     return AuthResponse(token=token, email=user.email, display_name=user.display_name or "")
 
 
@@ -571,6 +624,13 @@ def send_email_api(
     # 同时更新 plain text（去掉被替换的 base64 乱码）
     body_plain = _strip_html(body_html)
 
+    logger.info(
+        "SEND | user=%s | type=%s | to=%s | subject=%s | template_id=%s | sig_id=%s | body_len=%d | attach=%d | inline_img=%d",
+        user.email, data.email_type, data.recipient, data.subject,
+        data.template_id or "-", data.signature_id or "-",
+        len(data.body or ""), len(data.attachments or []), len(_inline_images),
+    )
+
     success, error_msg = send_email(
         email_address=user.email,
         password=data.ews_password,
@@ -582,6 +642,11 @@ def send_email_api(
         attachments=[a.model_dump() for a in data.attachments] if data.attachments else [],
         inline_images=_inline_images if _inline_images else None,
     )
+
+    if success:
+        logger.info("SEND OK | user=%s | to=%s | subject=%s", user.email, data.recipient, data.subject)
+    else:
+        logger.error("SEND FAIL | user=%s | to=%s | subject=%s | error=%s", user.email, data.recipient, data.subject, error_msg)
 
     record = EmailHistory(
         sender=user.email,
