@@ -115,7 +115,7 @@ const editor = useEditor({
         HTMLAttributes: { rel: "noopener" },
       },
     }),
-    Image.configure({ inline: true }),
+    Image.configure({ inline: true, allowBase64: true }),
   ],
   editorProps: {
     attributes: { class: "rte-content" },
