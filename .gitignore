@@ -30,3 +30,4 @@ Thumbs.db
 # Virtual env
 venv/
 .venv/
+backend/logs/
