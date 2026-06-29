@@ -52,10 +52,16 @@
         <div class="settings-card">
           <div class="tab-header">
             <span></span>
-            <n-button type="primary" size="small" @click="openSignatureModal(null)">
-              <template #icon><SvgIcon name="add" /></template>
-              新建签名
-            </n-button>
+            <div class="sig-tab-actions">
+              <n-button type="primary" size="small" @click="openSignatureModal(null)">
+                <template #icon><SvgIcon name="add" /></template>
+                新建签名
+              </n-button>
+              <n-button size="small" @click="openSigImport">
+                <template #icon><SvgIcon name="folder" /></template>
+                从 Outlook 文件导入
+              </n-button>
+            </div>
           </div>
           <div v-if="signatures.length === 0" class="empty">暂无签名</div>
           <div v-for="s in signatures" :key="s.id" class="list-card">
@@ -231,6 +237,77 @@
         <div class="modal-footer">
           <n-button @click="sigModalVisible = false">取消</n-button>
           <n-button type="primary" :loading="sigSaving" @click="handleSaveSignature">保存</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- Outlook Signature Import Modal -->
+    <n-modal v-model:show="sigImportVisible" preset="card" title="从 Outlook 导入签名" style="max-width:720px">
+      <div class="import-guide">
+        <p>您的 Outlook 签名文件位于：</p>
+        <div class="import-path-row">
+          <code>%APPDATA%\Microsoft\Signatures</code>
+          <n-button text size="tiny" @click="copySigPath">复制路径</n-button>
+        </div>
+        <p class="import-hint">Win+R → 粘贴路径 → 回车，然后将 <strong>Signatures 文件夹</strong>拖入下方区域</p>
+      </div>
+
+      <div
+        class="import-drop-zone"
+        :class="{ 'import-drop-active': sigImportDragOver, 'import-drop-filled': sigImportFound.length }"
+        @drop.prevent="handleSigFolderDrop"
+        @dragover.prevent="sigImportDragOver = true"
+        @dragleave="sigImportDragOver = false"
+        @click="sigFolderInput?.click()"
+      >
+        <input ref="sigFolderInput" type="file" webkitdirectory hidden @change="handleSigFolderSelect" />
+
+        <div v-if="sigImportScanning" class="import-drop-msg">
+          <span class="import-scan-icon">⏳</span> 正在扫描...
+        </div>
+        <div v-else-if="!sigImportFound.length" class="import-drop-msg">
+          <span class="import-drop-icon">📂</span>
+          <span>将 Signatures 文件夹拖到此处，或点击选择</span>
+        </div>
+        <div v-else class="import-drop-msg done">
+          <span class="import-scan-icon">✅</span>
+          <span>已扫描 {{ sigImportFound.length }} 个签名</span>
+          <span class="import-repick">（拖入或点击重新选择）</span>
+        </div>
+      </div>
+
+      <div v-if="sigImportFound.length" class="import-list">
+        <div
+          v-for="(s, i) in sigImportFound"
+          :key="i"
+          class="import-item"
+          :class="{ selected: sigImportSelected.has(i) }"
+          @click="sigImportSelected.has(i) ? sigImportSelected.delete(i) : sigImportSelected.add(i); sigImportSelected = new Set(sigImportSelected)"
+        >
+          <n-checkbox :checked="sigImportSelected.has(i)" />
+          <div class="import-item-info">
+            <span class="import-item-name">{{ s.name }}</span>
+            <span class="import-item-meta">
+              {{ s.imageCount }} 张图片<template v-if="s.missingImages">，{{ s.missingImages }} 张未匹配</template>
+            </span>
+          </div>
+          <div class="import-item-preview" v-html="s.content"></div>
+        </div>
+      </div>
+
+      <div v-if="sigImportError" class="import-error">{{ sigImportError }}</div>
+
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="sigImportVisible = false">取消</n-button>
+          <n-button
+            type="primary"
+            :loading="sigImportSaving"
+            :disabled="!sigImportSelected.size"
+            @click="handleBatchImport"
+          >
+            导入选中签名（{{ sigImportSelected.size }}）
+          </n-button>
         </div>
       </template>
     </n-modal>
@@ -473,10 +550,19 @@ const signatures = ref([]);
 const sigModalVisible = ref(false);
 const sigSaving = ref(false);
 const editingSigId = ref(null);
-const sigMode = ref("richtext");
-const sigImageConverting = ref(false);
 const sigForm = ref({ name: "", content: "", is_default: false });
 const sigPreviewScale = ref(1.0);
+
+// ── Signature import from Outlook files ──
+
+const sigImportVisible = ref(false);
+const sigImportScanning = ref(false);
+const sigImportSaving = ref(false);
+const sigImportDragOver = ref(false);
+const sigImportError = ref("");
+const sigImportFound = ref([]); // { name, content, imageCount, missingImages }
+const sigImportSelected = ref(new Set());
+const sigFolderInput = ref(null);
 
 async function loadSignatures() {
   try {
@@ -555,127 +641,21 @@ function removeDomain(index) {
   });
 }
 
-function measurePreviewScale() {
-  nextTick(() => {
-    const wrap = document.querySelector(".preview-box .sig-paste-wrap");
-    if (!wrap) return;
-    const h = wrap.scrollHeight;
-    sigPreviewScale.value = h > 200 ? Math.max(0.3, 200 / h) : 1.0;
-  });
-}
-
 /**
- * 从 RTF 数据中提取嵌入的图片，返回 data URI 数组。
- * 不依赖 blip 名称 — 直接定位 {\pict 块，取其中长 hex 序列。
+ * 清理 Outlook 导出的 HTML：td 居中、p 间距、空标签、图片尺寸。
+ * 直接修改传入的 Document。
  */
-async function extractRtfImages(rtf) {
-  const result = [];
-  if (!rtf) return result;
-
-  const pictBlocks = [];
-  let searchFrom = 0;
-  while (true) {
-    const start = rtf.indexOf('{\\pict', searchFrom);
-    if (start === -1) break;
-    let depth = 0, end = -1;
-    for (let i = start; i < rtf.length; i++) {
-      if (rtf[i] === "{") depth++;
-      else if (rtf[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
-    }
-    if (end > start) pictBlocks.push(rtf.substring(start, end + 1));
-    searchFrom = start + 1;
-  }
-  console.log("[sig] pictBlocks:", pictBlocks.length);
-
-  for (const block of pictBlocks) {
-    // 1. 去掉外层 {}，循环删最内层剩余 { ... }
-    let cleaned = block.slice(1, -1);
-    let prev = "";
-    while (prev !== cleaned) {
-      prev = cleaned;
-      cleaned = cleaned.replace(/\{[^{}]*\}/g, "");
-    }
-    // 2. 删所有 \xxx 控制词（含数字参数）
-    cleaned = cleaned.replace(/\\[a-zA-Z]+-?\d* ?/g, "");
-    // 3. 提取纯 hex
-    const hexStr = cleaned.replace(/[^0-9a-fA-F]/g, "");
-    if (hexStr.length < 200) continue;
-    console.log("[sig] hexLen:", hexStr.length, "head:", hexStr.substring(0, 80));
-
-    const len = Math.floor(hexStr.length / 2);
-    const bytes = new Uint8Array(len);
-    for (let j = 0; j < len; j++) {
-      bytes[j] = parseInt(hexStr.substring(j * 2, j * 2 + 2), 16);
-    }
-    // 用 <img> 标签解码（浏览器解码器比 createImageBitmap 更宽容）
-    let binary = "";
-    for (let j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
-    const dataUri = "data:image/png;base64," + btoa(binary);
-    const ok = await new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(false);
-      img.src = dataUri;
-    });
-    if (ok) result.push(dataUri);
-    else console.warn("[sig] decode failed, hexLen:", hexStr.length);
-  }
-  return result;
-}
-
-async function onSigPaste(e) {
-  e.preventDefault();
-  const rawHtml = e.clipboardData?.getData("text/html");
-  if (!rawHtml) return;
-
-  e.target.innerHTML = "";
-
-  // 从原始 HTML 提取 file:// 路径
-  const fileSrcs = [];
-  const fileRegex = /src\s*=\s*\"(file:\/\/\/[^\"]+|[A-Za-z]:[\\\/][^\"]+)\"/gi;
-  let match;
-  while ((match = fileRegex.exec(rawHtml)) !== null) {
-    fileSrcs.push(match[1]);
-  }
-
-  let processedHtml = rawHtml;
-  if (fileSrcs.length > 0) {
-    sigImageConverting.value = true;
-    const rtfData = e.clipboardData?.getData("text/rtf") || "";
-    console.log("[sig] fileSrcs:", fileSrcs.length, "rtfLen:", rtfData.length,
-      "blips:", ["pngblip","jpegblip","wmetafile","emfblip"].map(k =>
-        k+":"+(rtfData.match(new RegExp("\\\\"+k,"gi"))||[]).length).join(", "));
-    const rtfImages = await extractRtfImages(rtfData);
-    console.log("[sig] images:", rtfImages.length, "sizes:", rtfImages.map(i => i ? i.length : 0));
-    // 文件路径去重
-	    const uniqueSrcs = [...new Set(fileSrcs)];
-	    const count = Math.min(uniqueSrcs.length, rtfImages.length);
-    for (let i = 0; i < count; i++) {
-      if (rtfImages[i]) {
-        processedHtml = processedHtml.replaceAll(uniqueSrcs[i], rtfImages[i]);
-      }
-    }
-    sigImageConverting.value = false;
-  }
-
-  // 用处理后的 HTML 重新解析
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(processedHtml, "text/html");
-
-  // Vertically center all table cells (Outlook defaults to top)
+function cleanOutlookHtml(doc) {
   doc.querySelectorAll("td").forEach((td) => {
     td.style.verticalAlign = "middle";
   });
-
-  // Remove empty <p> and <o:p> noise that Outlook injects, then tighten paragraph spacing
   doc.querySelectorAll("p").forEach((p) => {
-    // Don't touch paragraphs that contain images
     if (p.querySelector("img")) {
       p.style.margin = "0 0 4px 0";
       p.style.lineHeight = "1.4";
       return;
     }
-    if (!p.textContent.trim() || p.textContent === " ") {
+    if (!p.textContent.trim() || p.textContent === "\xa0") {
       p.remove();
     } else {
       p.style.margin = "0 0 4px 0";
@@ -751,6 +731,230 @@ async function handleDeleteSignature(id) {
       }
     },
   });
+}
+
+// ── Outlook 签名导入 ────────────────
+
+function openSigImport() {
+  sigImportVisible.value = true;
+  sigImportFound.value = [];
+  sigImportSelected.value = new Set();
+  sigImportError.value = "";
+}
+
+function copySigPath() {
+  navigator.clipboard.writeText("%APPDATA%\\Microsoft\\Signatures")
+    .then(() => message.success("路径已复制"))
+    .catch(() => message.warning("复制失败，请手动复制"));
+}
+
+async function handleSigFolderDrop(e) {
+  sigImportDragOver.value = false;
+  sigImportError.value = "";
+
+  const items = e.dataTransfer?.items;
+  if (!items) return;
+
+  const files = [];
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry?.();
+    if (!entry) continue;
+    if (!entry.isDirectory) {
+      // 单个文件
+      const file = item.getAsFile();
+      if (file) {
+        file._relativePath = file.name;
+        files.push(file);
+      }
+      continue;
+    }
+    // 递归遍历目录
+    await readDirEntries(entry, files);
+  }
+
+  if (!files.length) {
+    sigImportError.value = "未在拖入的内容中找到文件，请拖入整个 Signatures 文件夹";
+    return;
+  }
+
+  await scanSignatureFolder(files);
+}
+
+function handleSigFolderSelect(e) {
+  const fileList = e.target.files;
+  if (!fileList || !fileList.length) return;
+
+  const files = [];
+  for (const f of fileList) {
+    // webkitRelativePath 保留相对路径
+    f._relativePath = f.webkitRelativePath || f.name;
+    files.push(f);
+  }
+
+  scanSignatureFolder(files);
+}
+
+/* 递归读取目录 */
+async function readDirEntries(dirEntry, out) {
+  const reader = dirEntry.createReader();
+  return new Promise((resolve) => {
+    function readBatch() {
+      reader.readEntries(async (entries) => {
+        if (!entries.length) { resolve(); return; }
+        for (const entry of entries) {
+          if (entry.isFile) {
+            const file = await new Promise((r) => entry.file(r));
+            file._relativePath = (entry.fullPath || "").replace(/^[/\\]/, "").replace(/\\/g, "/");
+            out.push(file);
+          } else if (entry.isDirectory) {
+            await readDirEntries(entry, out);
+          }
+        }
+        readBatch(); // 继续下一批（createReader 每次最多返回 100 条）
+      });
+    }
+    readBatch();
+  });
+}
+
+/* 扫描文件列表，匹配 .htm 与其 _files 图片 */
+async function scanSignatureFolder(files) {
+  sigImportScanning.value = true;
+  sigImportError.value = "";
+
+  try {
+    // 构建路径 → File 映射
+    const fileMap = new Map();
+    for (const f of files) {
+      const relPath = (f._relativePath || f.name).replace(/\\/g, "/");
+      fileMap.set(relPath, f);
+    }
+
+    // 找到所有 .htm / .html 文件
+    const htmEntries = [...fileMap.entries()].filter(([path]) =>
+      /\.(?:htm|html)$/i.test(path)
+    );
+
+    if (!htmEntries.length) {
+      sigImportError.value = "未在文件夹中找到 .htm 签名文件，请确认拖入的是 Signatures 文件夹";
+      sigImportFound.value = [];
+      return;
+    }
+
+    const results = [];
+
+    for (const [htmPath, htmFile] of htmEntries) {
+      const baseName = htmFile.name.replace(/\.(?:htm|html)$/i, "");
+      const htmlText = await htmFile.text();
+
+      // 解析 HTML
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, "text/html");
+
+      // 确定 _files 目录前缀（可能与 .htm 同级或在子目录中）
+      const htmDir = htmPath.substring(0, Math.max(0, htmPath.lastIndexOf("/") + 1));
+      const folderName = baseName + "_files";
+
+      // 提取 body 内容
+      const bodyContent = doc.body ? doc.body.innerHTML : "";
+
+      // 定位并替换图片
+      const imgs = doc.querySelectorAll("img");
+      let replacedCount = 0;
+
+      for (const img of imgs) {
+        const rawSrc = img.getAttribute("src");
+        if (!rawSrc) continue;
+
+        // Outlook .htm 中 src 可能是相对路径如 "工作签名_files/image001.png" 或含 file:// 前缀
+        let imgRelPath = rawSrc.replace(/\\/g, "/");
+        // 去掉可能的 file:/// 前缀
+        imgRelPath = imgRelPath.replace(/^file:\/\/\/[A-Za-z]:/, "").replace(/^file:\/\/\/?/, "");
+        // 去掉前导路径，只保留相对于 Signatures 文件夹的路径
+        // 例如 "C:/Users/.../Signatures/工作签名_files/image001.png" → "工作签名_files/image001.png"
+        const sigIdx = imgRelPath.toLowerCase().indexOf("signatures/");
+        if (sigIdx >= 0) {
+          imgRelPath = imgRelPath.substring(sigIdx + "signatures/".length);
+        }
+
+        // 尝试匹配文件
+        const imgBasename = imgRelPath.replace(/^.*[\\/]/, "");
+        // 优先在同名 _files 下查找
+        let imgFile = fileMap.get(htmDir + folderName + "/" + imgBasename);
+        if (!imgFile) {
+          // 在整个 fileMap 中搜索同名文件
+          for (const [fp, f] of fileMap) {
+            if (fp.endsWith("/" + imgBasename)) { imgFile = f; break; }
+          }
+        }
+
+        if (imgFile) {
+          const dataUri = await fileToDataUri(imgFile);
+          img.setAttribute("src", dataUri);
+          replacedCount++;
+        }
+      }
+
+      cleanOutlookHtml(doc);
+
+      const cleanedBody = doc.body ? doc.body.innerHTML : bodyContent;
+      const wrapped = '<div style="max-width:600px;">' + cleanedBody + "</div>";
+
+      const allImgs = doc.querySelectorAll("img");
+      results.push({
+        name: baseName,
+        content: wrapped,
+        imageCount: replacedCount,
+        missingImages: allImgs.length - replacedCount,
+      });
+    }
+
+    sigImportFound.value = results;
+    // 默认全选
+    sigImportSelected.value = new Set(results.map((_, i) => i));
+  } catch (err) {
+    console.error("[sig-import]", err);
+    sigImportError.value = "扫描失败：" + (err.message || "未知错误");
+  } finally {
+    sigImportScanning.value = false;
+  }
+}
+
+function fileToDataUri(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleBatchImport() {
+  if (!sigImportSelected.value.size) return;
+  sigImportSaving.value = true;
+  sigImportError.value = "";
+
+  let ok = 0, fail = 0;
+  for (const idx of sigImportSelected.value) {
+    const s = sigImportFound.value[idx];
+    if (!s) continue;
+    try {
+      await createSignature({ name: s.name, content: s.content, is_default: false });
+      ok++;
+    } catch (err) {
+      console.error("[sig-import] create failed:", s.name, err);
+      fail++;
+    }
+  }
+
+  if (fail) {
+    sigImportError.value = `成功导入 ${ok} 个，${fail} 个失败`;
+  } else {
+    message.success(`已导入 ${ok} 个签名`);
+    sigImportVisible.value = false;
+    await loadSignatures();
+  }
+  sigImportSaving.value = false;
 }
 </script>
 
@@ -1212,5 +1416,171 @@ async function handleDeleteSignature(id) {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ── Signature tab header actions ─── */
+
+.sig-tab-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Import modal ─────────────────── */
+
+.import-guide {
+  margin-bottom: 16px;
+}
+
+.import-guide p {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #1d1d1f;
+}
+
+.import-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.import-path-row code {
+  background: #f5f5f7;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #0071e3;
+  font-family: "SF Mono", "Consolas", monospace;
+  user-select: all;
+}
+
+.import-hint {
+  font-size: 12px;
+  color: #86868b;
+}
+
+.import-drop-zone {
+  border: 2px dashed #d0d0d0;
+  border-radius: 12px;
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 16px;
+}
+
+.import-drop-zone:hover {
+  border-color: #0071e3;
+  background: #f0f7ff;
+}
+
+.import-drop-active {
+  border-color: #0071e3;
+  background: #e8f2ff;
+}
+
+.import-drop-filled {
+  border-style: solid;
+  border-color: #34c759;
+  background: #e8f8ed;
+}
+
+.import-drop-msg {
+  text-align: center;
+  font-size: 14px;
+  color: #86868b;
+  padding: 20px;
+}
+
+.import-drop-msg.done {
+  color: #1d1d1f;
+}
+
+.import-drop-icon,
+.import-scan-icon {
+  display: block;
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.import-repick {
+  display: block;
+  font-size: 12px;
+  color: #86868b;
+  margin-top: 4px;
+}
+
+.import-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.import-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.import-item:hover {
+  border-color: #0071e3;
+}
+
+.import-item.selected {
+  border-color: #0071e3;
+  background: #f0f7ff;
+}
+
+.import-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.import-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+  display: block;
+}
+
+.import-item-meta {
+  font-size: 12px;
+  color: #86868b;
+}
+
+.import-item-preview {
+  max-width: 200px;
+  max-height: 60px;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #86868b;
+  background: #fff;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.import-item-preview :deep(img) {
+  max-height: 40px;
+  max-width: 60px;
+}
+
+.import-error {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fff2f0;
+  border-radius: 8px;
+  color: #d03050;
+  font-size: 13px;
 }
 </style>
