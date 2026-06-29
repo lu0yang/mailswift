@@ -88,7 +88,6 @@
 import { ref, watch, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import { encodeImage } from "@/api";
 
@@ -111,8 +110,11 @@ const editor = useEditor({
       codeBlock: false,
       blockquote: false,
       horizontalRule: false,
+      link: {
+        openOnClick: false,
+        HTMLAttributes: { rel: "noopener" },
+      },
     }),
-    Link.configure({ openOnClick: false, HTMLAttributes: { rel: "noopener" } }),
     Image.configure({ inline: true }),
   ],
   editorProps: {
