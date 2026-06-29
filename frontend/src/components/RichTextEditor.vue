@@ -362,9 +362,10 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+/* 编辑器中隐藏图片 — 图片保留在文档模型中不丢失，
+   用户只编辑文本，完整效果看预览 */
 .rte-content :deep(img) {
-  max-width: 100%;
-  height: auto;
+  display: none;
 }
 
 .rte-attachments {
